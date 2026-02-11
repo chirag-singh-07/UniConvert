@@ -5,5 +5,4 @@ uploads/*
 !uploads/.gitkeep
 converted/*
 !converted/.gitkeep
-*.log
-.DS_Store
+*.
