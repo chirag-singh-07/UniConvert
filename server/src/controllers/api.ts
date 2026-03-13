@@ -4,7 +4,7 @@ import fs from "fs";
 import { FileRecord } from "../models/FileRecord";
 import {
   convertToPdfWithLibreOffice, convertPdfToDocx,
-  convertImageToPdf, convertTxtToPdf,
+  convertImageToPdf, convertTxtToPdf, convertMdToPdf, convertHtmlToPdfAsRenderer,
   convertPdfToTxt, convertPdfToHtml, convertPdfToCsv, convertPdfToJson, convertPdfToEpub,
   convertDocxToTxt, convertDocxToHtml,
   convertXmlToJson, convertJsonToXml, convertCsvToJson, convertJsonToCsv, convertCsvToPdf,
@@ -71,7 +71,7 @@ export const convertFile = async (req: Request, res: Response) => {
     let out: string;
     switch (conversionType) {
       // ── LibreOffice ──────────────────────────────────────────────────────
-      case "docx-to-pdf": case "ppt-to-pdf": case "excel-to-pdf":
+      case "docx-to-pdf": case "ppt-to-pdf": case "excel-to-pdf": case "odt-to-pdf": case "epub-to-pdf": case "rtf-to-pdf": case "xml-to-pdf": case "pub-to-pdf":
         out = await convertToPdfWithLibreOffice(inp); break;
       case "pdf-to-docx":
         out = await convertPdfToDocx(inp); break;
@@ -79,6 +79,8 @@ export const convertFile = async (req: Request, res: Response) => {
       // ── Image & Text ────────────────────────────────────────────────────
       case "image-to-pdf":   out = await convertImageToPdf(inp); break;
       case "txt-to-pdf":     out = await convertTxtToPdf(inp); break;
+      case "md-to-pdf":      out = await convertMdToPdf(inp); break;
+      case "html-to-pdf":    out = await convertHtmlToPdfAsRenderer(inp); break;
 
       // ── PDF → Other ─────────────────────────────────────────────────────
       case "pdf-to-txt":     out = await convertPdfToTxt(inp); break;

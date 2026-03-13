@@ -12,6 +12,10 @@ import PDFKit from "pdfkit";
 import mammoth from "mammoth";
 // @ts-ignore
 import xml2js from "xml2js";
+// @ts-ignore
+import * as XLSX from "xlsx";
+import { marked } from "marked";
+import { parse as parseHtml } from "node-html-parser";
 
 // pdf-parse has inconsistent ESM/CJS exports — resolve both
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -22,6 +26,88 @@ const execAsync = promisify(exec);
 
 const convertedDir = process.env.CONVERTED_DIR || "./converted";
 if (!fs.existsSync(convertedDir)) fs.mkdirSync(convertedDir, { recursive: true });
+
+// ─── Shared HTML → PDFKit renderer ───────────────────────────────────────────
+// Used by DOCX→PDF, MD→PDF, HTML→PDF and any future HTML-based conversion.
+
+function renderHtmlToPdfKit(doc: any, html: string): void {
+  const root = parseHtml(html);
+
+  function renderNode(node: any): void {
+    if (node.nodeType === 3) { // text node
+      const t = (node.text || "").replace(/\s+/g, " ").trim();
+      if (t) doc.fontSize(12).font("Helvetica").fillColor("#1e293b").text(t, { continued: false });
+      return;
+    }
+    if (node.nodeType !== 1) return;
+
+    const tag = (node.tagName ?? "").toLowerCase();
+    const text = (node.structuredText ?? node.text ?? "")
+      .replace(/\s+/g, " ").trim();
+
+    switch (tag) {
+      case "h1":
+        doc.moveDown(0.4).fontSize(22).font("Helvetica-Bold").fillColor("#1e3a8a").text(text);
+        doc.moveDown(0.4).fillColor("#1e293b"); break;
+      case "h2":
+        doc.moveDown(0.35).fontSize(18).font("Helvetica-Bold").fillColor("#1e40af").text(text);
+        doc.moveDown(0.3).fillColor("#1e293b"); break;
+      case "h3":
+        doc.moveDown(0.3).fontSize(15).font("Helvetica-Bold").fillColor("#3b82f6").text(text);
+        doc.moveDown(0.25).fillColor("#1e293b"); break;
+      case "h4": case "h5": case "h6":
+        doc.moveDown(0.25).fontSize(13).font("Helvetica-Bold").fillColor("#475569").text(text);
+        doc.moveDown(0.2).fillColor("#1e293b"); break;
+      case "p":
+        if (text) { doc.fontSize(12).font("Helvetica").text(text, { lineGap: 3 }); doc.moveDown(0.25); }
+        break;
+      case "li":
+        doc.fontSize(12).font("Helvetica").text(`  •  ${text}`, { lineGap: 2 }); break;
+      case "pre": case "code":
+        doc.rect(doc.x - 4, doc.y - 2, doc.page.width - doc.page.margins.left - doc.page.margins.right, 14 + text.split("\n").length * 14)
+          .fill("#f1f5f9");
+        doc.fillColor("#0f172a").fontSize(9).font("Courier").text(text, { lineGap: 2 }); doc.moveDown(0.3); break;
+      case "blockquote":
+        doc.rect(doc.page.margins.left, doc.y - 2, 4, text.split("\n").length * 18).fill("#3b82f6");
+        doc.fillColor("#475569").fontSize(12).font("Helvetica-Oblique").text(text, { lineGap: 3, indent: 16 });
+        doc.moveDown(0.3).fillColor("#1e293b"); break;
+      case "hr":
+        doc.moveDown(0.5).strokeColor("#e2e8f0").lineWidth(1)
+          .moveTo(doc.page.margins.left, doc.y)
+          .lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke()
+          .moveDown(0.5); break;
+      case "table": {
+        const rows = node.querySelectorAll("tr");
+        if (rows.length) {
+          const colCount = Math.max(...rows.map((r: any) => r.querySelectorAll("td,th").length));
+          const colW = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / colCount;
+          rows.forEach((row: any, ri: number) => {
+            const cells = row.querySelectorAll("td,th");
+            const isHeader = ri === 0 || cells.some((c: any) => c.tagName?.toLowerCase() === "th");
+            const rowY = doc.y;
+            if (isHeader) doc.rect(doc.page.margins.left, rowY - 2, colW * colCount, 20).fill("#1e40af");
+            cells.forEach((cell: any, ci: number) => {
+              doc.fontSize(9).font(isHeader ? "Helvetica-Bold" : "Helvetica")
+                .fillColor(isHeader ? "white" : "#1e293b")
+                .text((cell.text || "").trim(), doc.page.margins.left + ci * colW, rowY, { width: colW - 6, ellipsis: true });
+            });
+            doc.moveDown(1.2);
+          });
+          doc.fillColor("#1e293b");
+        }
+        break;
+      }
+      case "ul": case "ol":
+        node.childNodes?.forEach(renderNode); break;
+      default:
+        if (node.childNodes?.length) node.childNodes.forEach(renderNode);
+        else if (text) doc.fontSize(12).font("Helvetica").text(text, { continued: false });
+    }
+  }
+
+  root.childNodes?.forEach(renderNode);
+}
+
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -113,6 +199,43 @@ export const convertTxtToPdf = async (inputPath: string): Promise<string> => {
       ws.on("finish", () => resolve(outputPath));
       ws.on("error", (e) => reject(new Error(`TXT to PDF failed: ${e.message}`)));
     } catch (e: any) { reject(new Error(`TXT to PDF failed: ${e.message}`)); }
+  });
+};
+
+// ─── MD → PDF ───────────────────────────────────────────────────────────────
+
+export const convertMdToPdf = async (inputPath: string): Promise<string> => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const outputPath = outName(inputPath, "", "pdf");
+      const md = fs.readFileSync(inputPath, "utf-8");
+      const html = await marked.parse(md) as string;
+      const doc = new (PDFKit as any)({ margin: 50 });
+      const ws = fs.createWriteStream(outputPath);
+      doc.pipe(ws);
+      renderHtmlToPdfKit(doc, html);
+      doc.end();
+      ws.on("finish", () => resolve(outputPath));
+      ws.on("error", (e: Error) => reject(new Error(`MD to PDF failed: ${e.message}`)));
+    } catch (e: any) { reject(new Error(`MD to PDF failed: ${e.message}`)); }
+  });
+};
+
+// ─── HTML → PDF ─────────────────────────────────────────────────────────────
+
+export const convertHtmlToPdfAsRenderer = async (inputPath: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const outputPath = outName(inputPath, "", "pdf");
+      const html = fs.readFileSync(inputPath, "utf-8");
+      const doc = new (PDFKit as any)({ margin: 50 });
+      const ws = fs.createWriteStream(outputPath);
+      doc.pipe(ws);
+      renderHtmlToPdfKit(doc, html);
+      doc.end();
+      ws.on("finish", () => resolve(outputPath));
+      ws.on("error", (e: Error) => reject(new Error(`HTML to PDF failed: ${e.message}`)));
+    } catch (e: any) { reject(new Error(`HTML to PDF failed: ${e.message}`)); }
   });
 };
 
