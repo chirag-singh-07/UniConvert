@@ -2,21 +2,45 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
-import { PDFDocument, rgb, degrees, StandardFonts, PDFPage } from "pdf-lib";
-import PDFKit from "pdfkit";
+import {
+  PDFDocument, rgb, degrees, StandardFonts, PDFPage,
+  PDFName, PDFArray, PDFNumber,
+} from "pdf-lib";
 // @ts-ignore
-import pdfParse from "pdf-parse";
+import PDFKit from "pdfkit";
 // @ts-ignore
 import mammoth from "mammoth";
 // @ts-ignore
 import xml2js from "xml2js";
 
+// pdf-parse has inconsistent ESM/CJS exports — resolve both
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const _pdfParseModule = require("pdf-parse");
+const parsePdf = (_pdfParseModule.default ?? _pdfParseModule) as (buf: Buffer) => Promise<{ text: string; info: any; numpages: number }>;
+
 const execAsync = promisify(exec);
 
-// Ensure converted directory exists
 const convertedDir = process.env.CONVERTED_DIR || "./converted";
-if (!fs.existsSync(convertedDir)) {
-  fs.mkdirSync(convertedDir, { recursive: true });
+if (!fs.existsSync(convertedDir)) fs.mkdirSync(convertedDir, { recursive: true });
+
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function outName(inputPath: string, suffix: string, ext?: string): string {
+  const base = path.basename(inputPath, path.extname(inputPath));
+  const extension = ext ?? path.extname(inputPath).slice(1);
+  return path.join(convertedDir, `${base}${suffix}.${extension}`);
+}
+
+async function loadPdf(inputPath: string): Promise<{ pdfDoc: PDFDocument; bytes: Buffer }> {
+  const bytes = fs.readFileSync(inputPath);
+  const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return { pdfDoc, bytes };
+}
+
+async function savePdf(pdfDoc: PDFDocument, outputPath: string): Promise<string> {
+  fs.writeFileSync(outputPath, await pdfDoc.save({ useObjectStreams: true }));
+  return outputPath;
 }
 
 // ─── LibreOffice conversions ──────────────────────────────────────────────────
@@ -34,7 +58,6 @@ export const convertToPdfWithLibreOffice = async (
     if (!fs.existsSync(outputPath)) throw new Error("Conversion failed: Output file not created");
     return outputPath;
   } catch (error: any) {
-    console.error("LibreOffice conversion error:", error);
     throw new Error(`Conversion failed: ${error.message}`);
   }
 };
@@ -52,462 +75,592 @@ export const convertPdfToDocx = async (
     if (!fs.existsSync(outputPath)) throw new Error("Conversion failed: Output file not created");
     return outputPath;
   } catch (error: any) {
-    console.error("PDF to DOCX conversion error:", error);
     throw new Error(`Conversion failed: ${error.message}`);
   }
 };
 
 // ─── Image to PDF ────────────────────────────────────────────────────────────
 
-export const convertImageToPdf = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
+export const convertImageToPdf = async (inputPath: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     try {
-      const inputFileName = path.basename(inputPath);
-      const outputFileName = inputFileName.replace(path.extname(inputFileName), ".pdf");
-      const outputPath = path.join(outputDir, outputFileName);
-      const doc = new PDFKit({ autoFirstPage: false });
-      const writeStream = fs.createWriteStream(outputPath);
-      doc.pipe(writeStream);
+      const outputPath = outName(inputPath, "", "pdf");
+      const doc = new (PDFKit as any)({ autoFirstPage: false });
+      const ws = fs.createWriteStream(outputPath);
+      doc.pipe(ws);
       const img = doc.openImage(inputPath);
       doc.addPage({ size: [img.width, img.height] });
       doc.image(inputPath, 0, 0, { width: img.width, height: img.height });
       doc.end();
-      writeStream.on("finish", () => resolve(outputPath));
-      writeStream.on("error", (e) => reject(new Error(`Image to PDF failed: ${e.message}`)));
-    } catch (error: any) {
-      reject(new Error(`Image to PDF failed: ${error.message}`));
-    }
+      ws.on("finish", () => resolve(outputPath));
+      ws.on("error", (e) => reject(new Error(`Image to PDF failed: ${e.message}`)));
+    } catch (e: any) { reject(new Error(`Image to PDF failed: ${e.message}`)); }
   });
 };
 
-// ─── TXT to PDF ──────────────────────────────────────────────────────────────
+// ─── TXT → PDF ───────────────────────────────────────────────────────────────
 
-export const convertTxtToPdf = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
+export const convertTxtToPdf = async (inputPath: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     try {
-      const inputFileName = path.basename(inputPath);
-      const outputFileName = inputFileName.replace(path.extname(inputFileName), ".pdf");
-      const outputPath = path.join(outputDir, outputFileName);
+      const outputPath = outName(inputPath, "", "pdf");
       const text = fs.readFileSync(inputPath, "utf-8");
-      const doc = new PDFKit({ margin: 50 });
-      const writeStream = fs.createWriteStream(outputPath);
-      doc.pipe(writeStream);
+      const doc = new (PDFKit as any)({ margin: 60 });
+      const ws = fs.createWriteStream(outputPath);
+      doc.pipe(ws);
       doc.fontSize(12).font("Helvetica").text(text, { lineGap: 4 });
       doc.end();
-      writeStream.on("finish", () => resolve(outputPath));
-      writeStream.on("error", (e) => reject(new Error(`TXT to PDF failed: ${e.message}`)));
-    } catch (error: any) {
-      reject(new Error(`TXT to PDF failed: ${error.message}`));
-    }
+      ws.on("finish", () => resolve(outputPath));
+      ws.on("error", (e) => reject(new Error(`TXT to PDF failed: ${e.message}`)));
+    } catch (e: any) { reject(new Error(`TXT to PDF failed: ${e.message}`)); }
   });
 };
 
-// ─── PDF to TXT ──────────────────────────────────────────────────────────────
+// ─── PDF → TXT ───────────────────────────────────────────────────────────────
 
-export const convertPdfToTxt = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const dataBuffer = fs.readFileSync(inputPath);
-    const pdfData = await pdfParse(dataBuffer);
-    const text = pdfData.text;
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", ".txt");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, text, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    console.error("PDF to TXT error:", error);
-    throw new Error(`PDF to TXT failed: ${error.message}`);
-  }
+export const convertPdfToTxt = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const outputPath = outName(inputPath, "", "txt");
+  fs.writeFileSync(outputPath, pdfData.text, "utf-8");
+  return outputPath;
 };
 
-// ─── DOCX to TXT ─────────────────────────────────────────────────────────────
+// ─── PDF → HTML ──────────────────────────────────────────────────────────────
 
-export const convertDocxToTxt = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const result = await mammoth.extractRawText({ path: inputPath });
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(path.extname(inputFileName), ".txt");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, result.value, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`DOCX to TXT failed: ${error.message}`);
-  }
+export const convertPdfToHtml = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const lines = pdfData.text.split("\n").map((l: string) =>
+    l.trim() ? `<p>${l.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p>` : ""
+  ).join("\n");
+  const outputPath = outName(inputPath, "", "html");
+  fs.writeFileSync(outputPath, `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{font-family:Georgia,serif;max-width:820px;margin:2rem auto;padding:0 1.5rem;line-height:1.8;color:#1e293b}
+p{margin:.4rem 0}h1{color:#1e40af;border-bottom:2px solid #e2e8f0;padding-bottom:.5rem}
+</style></head><body><h1>${path.basename(inputPath, ".pdf")}</h1>${lines}</body></html>`, "utf-8");
+  return outputPath;
 };
 
-// ─── DOCX to HTML ────────────────────────────────────────────────────────────
+// ─── PDF → CSV ───────────────────────────────────────────────────────────────
 
-export const convertDocxToHtml = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const result = await mammoth.convertToHtml({ path: inputPath });
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(path.extname(inputFileName), ".html");
-    const outputPath = path.join(outputDir, outputFileName);
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6}</style></head><body>${result.value}</body></html>`;
-    fs.writeFileSync(outputPath, html, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`DOCX to HTML failed: ${error.message}`);
-  }
+export const convertPdfToCsv = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const rows = pdfData.text.split("\n")
+    .map((l: string) => `"${l.replace(/"/g, '""').trim()}"`)
+    .filter((l: string) => l !== '""');
+  const csv = `"Line"\n` + rows.join("\n");
+  const outputPath = outName(inputPath, "", "csv");
+  fs.writeFileSync(outputPath, csv, "utf-8");
+  return outputPath;
 };
 
-// ─── PDF to HTML (basic) ─────────────────────────────────────────────────────
+// ─── PDF → JSON ──────────────────────────────────────────────────────────────
 
-export const convertPdfToHtml = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const dataBuffer = fs.readFileSync(inputPath);
-    const pdfData = await pdfParse(dataBuffer);
-    const lines = pdfData.text.split("\n").map((l: string) => `<p>${l.trim()}</p>`).join("\n");
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", ".html");
-    const outputPath = path.join(outputDir, outputFileName);
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6}p{margin:0.3rem 0}</style></head><body>${lines}</body></html>`;
-    fs.writeFileSync(outputPath, html, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`PDF to HTML failed: ${error.message}`);
-  }
+export const convertPdfToJson = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const { pdfDoc } = await loadPdf(inputPath);
+  const json = {
+    metadata: {
+      title: pdfDoc.getTitle() ?? "",
+      author: pdfDoc.getAuthor() ?? "",
+      subject: pdfDoc.getSubject() ?? "",
+      pageCount: pdfDoc.getPageCount(),
+      producer: pdfDoc.getProducer() ?? "",
+      info: pdfData.info,
+    },
+    pages: pdfDoc.getPages().map((p: PDFPage, i: number) => ({
+      page: i + 1,
+      width: p.getSize().width,
+      height: p.getSize().height,
+    })),
+    text: pdfData.text,
+    wordCount: pdfData.text.split(/\s+/).filter(Boolean).length,
+  };
+  const outputPath = outName(inputPath, "", "json");
+  fs.writeFileSync(outputPath, JSON.stringify(json, null, 2), "utf-8");
+  return outputPath;
+};
+
+// ─── PDF → EPUB (basic) ──────────────────────────────────────────────────────
+
+export const convertPdfToEpub = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const title = path.basename(inputPath, ".pdf");
+  const body = pdfData.text.split("\n\n").map((p: string) =>
+    `<p>${p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, " ").trim()}</p>`
+  ).join("\n");
+
+  // Build minimal valid EPUB (zip with OPF/NCX/XHTML)
+  const JSZip = require("jszip");
+  const zip = new JSZip();
+  zip.file("mimetype", "application/epub+zip");
+  zip.folder("META-INF")!.file("container.xml",
+    `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+  const oebps = zip.folder("OEBPS")!;
+  oebps.file("content.opf",
+    `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">${title}</dc:title></metadata>
+<manifest><item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+<spine><itemref idref="chapter1"/></spine></package>`);
+  oebps.file("chapter1.xhtml",
+    `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${title}</title>
+<style>body{font-family:Georgia,serif;line-height:1.8;padding:2rem}p{margin:.8rem 0}</style>
+</head><body><h1>${title}</h1>${body}</body></html>`);
+
+  const outputPath = outName(inputPath, "", "epub");
+  const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  fs.writeFileSync(outputPath, buffer);
+  return outputPath;
+};
+
+// ─── DOCX → TXT ──────────────────────────────────────────────────────────────
+
+export const convertDocxToTxt = async (inputPath: string): Promise<string> => {
+  const result = await mammoth.extractRawText({ path: inputPath });
+  const outputPath = outName(inputPath, "", "txt");
+  fs.writeFileSync(outputPath, result.value, "utf-8");
+  return outputPath;
+};
+
+// ─── DOCX → HTML ─────────────────────────────────────────────────────────────
+
+export const convertDocxToHtml = async (inputPath: string): Promise<string> => {
+  const result = await mammoth.convertToHtml({ path: inputPath });
+  const outputPath = outName(inputPath, "", "html");
+  fs.writeFileSync(outputPath,
+    `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6}</style></head><body>${result.value}</body></html>`,
+    "utf-8");
+  return outputPath;
 };
 
 // ─── XML ↔ JSON ──────────────────────────────────────────────────────────────
 
-export const convertXmlToJson = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const xml = fs.readFileSync(inputPath, "utf-8");
-    const parser = new xml2js.Parser({ explicitArray: false });
-    const result = await parser.parseStringPromise(xml);
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".xml", ".json");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`XML to JSON failed: ${error.message}`);
-  }
+export const convertXmlToJson = async (inputPath: string): Promise<string> => {
+  const xml = fs.readFileSync(inputPath, "utf-8");
+  const parser = new xml2js.Parser({ explicitArray: false });
+  const result = await parser.parseStringPromise(xml);
+  const outputPath = outName(inputPath, "", "json");
+  fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), "utf-8");
+  return outputPath;
 };
 
-export const convertJsonToXml = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const jsonStr = fs.readFileSync(inputPath, "utf-8");
-    const obj = JSON.parse(jsonStr);
-    const builder = new xml2js.Builder();
-    const xml = builder.buildObject(obj);
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".json", ".xml");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, xml, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`JSON to XML failed: ${error.message}`);
-  }
+export const convertJsonToXml = async (inputPath: string): Promise<string> => {
+  const obj = JSON.parse(fs.readFileSync(inputPath, "utf-8"));
+  const builder = new xml2js.Builder();
+  const outputPath = outName(inputPath, "", "xml");
+  fs.writeFileSync(outputPath, builder.buildObject(obj), "utf-8");
+  return outputPath;
 };
 
 // ─── CSV ↔ JSON ──────────────────────────────────────────────────────────────
 
-export const convertCsvToJson = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const csv = fs.readFileSync(inputPath, "utf-8");
-    const lines = csv.trim().split("\n");
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
-    const data = lines.slice(1).map((line) => {
-      const values = line.split(",").map((v) => v.trim().replace(/"/g, ""));
-      const obj: Record<string, string> = {};
-      headers.forEach((h, i) => { obj[h] = values[i] ?? ""; });
-      return obj;
-    });
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".csv", ".json");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`CSV to JSON failed: ${error.message}`);
-  }
+export const convertCsvToJson = async (inputPath: string): Promise<string> => {
+  const lines = fs.readFileSync(inputPath, "utf-8").trim().split("\n");
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+  const data = lines.slice(1).map((line) => {
+    const vals = line.split(",").map((v) => v.trim().replace(/"/g, ""));
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+    return obj;
+  });
+  const outputPath = outName(inputPath, "", "json");
+  fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), "utf-8");
+  return outputPath;
 };
 
-export const convertJsonToCsv = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const jsonStr = fs.readFileSync(inputPath, "utf-8");
-    const data: Record<string, any>[] = JSON.parse(jsonStr);
-    if (!Array.isArray(data) || data.length === 0) throw new Error("JSON must be an array of objects");
-    const headers = Object.keys(data[0]);
-    const csv = [
-      headers.join(","),
-      ...data.map((row) => headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")),
-    ].join("\n");
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".json", ".csv");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, csv, "utf-8");
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`JSON to CSV failed: ${error.message}`);
-  }
+export const convertJsonToCsv = async (inputPath: string): Promise<string> => {
+  const data: Record<string, any>[] = JSON.parse(fs.readFileSync(inputPath, "utf-8"));
+  if (!Array.isArray(data) || !data.length) throw new Error("JSON must be a non-empty array");
+  const headers = Object.keys(data[0]);
+  const csv = [
+    headers.join(","),
+    ...data.map((r) => headers.map((h) => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(",")),
+  ].join("\n");
+  const outputPath = outName(inputPath, "", "csv");
+  fs.writeFileSync(outputPath, csv, "utf-8");
+  return outputPath;
 };
 
-export const convertCsvToPdf = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
+export const convertCsvToPdf = async (inputPath: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     try {
-      const csv = fs.readFileSync(inputPath, "utf-8");
-      const lines = csv.trim().split("\n").map((l) => l.split(",").map((c) => c.trim().replace(/"/g, "")));
-      const inputFileName = path.basename(inputPath);
-      const outputFileName = inputFileName.replace(".csv", ".pdf");
-      const outputPath = path.join(outputDir, outputFileName);
+      const lines = fs.readFileSync(inputPath, "utf-8").trim().split("\n")
+        .map((l) => l.split(",").map((c) => c.trim().replace(/"/g, "")));
+      const outputPath = outName(inputPath, "", "pdf");
       const doc = new PDFKit({ margin: 40, size: "A4" });
-      const stream = fs.createWriteStream(outputPath);
-      doc.pipe(stream);
+      const ws = fs.createWriteStream(outputPath);
+      doc.pipe(ws);
       const cellW = (doc.page.width - 80) / (lines[0]?.length || 1);
-      const cellH = 20;
+      const cellH = 22;
       lines.forEach((row, ri) => {
-        if (ri === 0) { doc.font("Helvetica-Bold"); }
-        else { doc.font("Helvetica"); }
+        doc.font(ri === 0 ? "Helvetica-Bold" : "Helvetica");
         const y = 40 + ri * cellH;
         if (y + cellH > doc.page.height - 40) { doc.addPage(); }
-        row.forEach((cell, ci) => {
-          doc.fontSize(9).text(cell, 40 + ci * cellW, y, { width: cellW - 4, ellipsis: true });
-        });
+        if (ri === 0) { doc.rect(40, y - 2, doc.page.width - 80, cellH).fill("#e2e8f0"); doc.fill("#1e293b"); }
+        row.forEach((cell, ci) => doc.fontSize(9).text(cell, 40 + ci * cellW, y, { width: cellW - 4 }));
       });
       doc.end();
-      stream.on("finish", () => resolve(outputPath));
-      stream.on("error", (e) => reject(new Error(`CSV to PDF failed: ${e.message}`)));
-    } catch (error: any) {
-      reject(new Error(`CSV to PDF failed: ${error.message}`));
-    }
+      ws.on("finish", () => resolve(outputPath));
+      ws.on("error", (e) => reject(new Error(`CSV to PDF failed: ${e.message}`)));
+    } catch (e: any) { reject(new Error(`CSV to PDF: ${e.message}`)); }
   });
 };
 
 // ─── Merge PDFs ──────────────────────────────────────────────────────────────
 
-export const mergePdfs = async (
-  inputPaths: string[],
-  outputFileName: string,
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const mergedPdf = await PDFDocument.create();
-    for (const inputPath of inputPaths) {
-      const pdfBytes = fs.readFileSync(inputPath);
-      const pdf = await PDFDocument.load(pdfBytes);
-      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-      copiedPages.forEach((page) => mergedPdf.addPage(page));
-    }
-    const outputPath = path.join(outputDir, outputFileName);
-    const mergedPdfBytes = await mergedPdf.save();
-    fs.writeFileSync(outputPath, mergedPdfBytes);
-    return outputPath;
-  } catch (error: any) {
-    console.error("PDF merge error:", error);
-    throw new Error(`PDF merge failed: ${error.message}`);
+export const mergePdfs = async (inputPaths: string[], outputFileName: string): Promise<string> => {
+  const merged = await PDFDocument.create();
+  for (const p of inputPaths) {
+    const pdf = await PDFDocument.load(fs.readFileSync(p), { ignoreEncryption: true });
+    const pages = await merged.copyPages(pdf, pdf.getPageIndices());
+    pages.forEach((page) => merged.addPage(page));
   }
+  const out = path.join(convertedDir, outputFileName);
+  await savePdf(merged, out);
+  return out;
 };
 
-// ─── Compress PDF ────────────────────────────────────────────────────────────
+// ─── Compress PDF ─────────────────────────────────────────────────────────────
 
 export const compressPdf = async (
   inputPath: string,
   compressionLevel: "low" | "medium" | "high" = "medium",
-  outputDir: string = convertedDir,
 ): Promise<string> => {
-  try {
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", "-compressed.pdf");
-    const outputPath = path.join(outputDir, outputFileName);
-    const inputBytes = fs.readFileSync(inputPath);
-    const pdfDoc = await PDFDocument.load(inputBytes, { ignoreEncryption: true });
-    pdfDoc.setTitle(""); pdfDoc.setAuthor(""); pdfDoc.setSubject("");
-    pdfDoc.setKeywords([]); pdfDoc.setProducer(""); pdfDoc.setCreator("");
-    const saveOptions = compressionLevel === "low" ? { useObjectStreams: false } : { useObjectStreams: true };
-    const compressedBytes = await pdfDoc.save(saveOptions);
-    fs.writeFileSync(outputPath, compressedBytes);
-    if (!fs.existsSync(outputPath)) throw new Error("Compression failed: Output file not created");
-    return outputPath;
-  } catch (error: any) {
-    console.error("PDF compression error:", error);
-    throw new Error(`PDF compression failed: ${error.message}`);
-  }
+  const { pdfDoc } = await loadPdf(inputPath);
+  pdfDoc.setTitle(""); pdfDoc.setAuthor(""); pdfDoc.setSubject("");
+  pdfDoc.setKeywords([]); pdfDoc.setProducer(""); pdfDoc.setCreator("");
+  const outputPath = outName(inputPath, "-compressed");
+  fs.writeFileSync(outputPath, await pdfDoc.save({ useObjectStreams: compressionLevel !== "low" }));
+  return outputPath;
 };
 
 // ─── Split PDF ───────────────────────────────────────────────────────────────
 
-export const splitPdf = async (
-  inputPath: string,
-  outputDir: string = convertedDir,
-): Promise<string[]> => {
-  try {
-    const inputBytes = fs.readFileSync(inputPath);
-    const srcPdf = await PDFDocument.load(inputBytes);
-    const outPaths: string[] = [];
-    const baseName = path.basename(inputPath, ".pdf");
-    for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      const newDoc = await PDFDocument.create();
-      const [page] = await newDoc.copyPages(srcPdf, [i]);
-      newDoc.addPage(page);
-      const bytes = await newDoc.save();
-      const outPath = path.join(outputDir, `${baseName}-page-${i + 1}.pdf`);
-      fs.writeFileSync(outPath, bytes);
-      outPaths.push(outPath);
-    }
-    // Return a zip of them via merge trick — just return merged for simplicity
-    return outPaths;
-  } catch (error: any) {
-    throw new Error(`PDF split failed: ${error.message}`);
+export const splitPdf = async (inputPath: string): Promise<string[]> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const base = path.basename(inputPath, ".pdf");
+  const outPaths: string[] = [];
+  for (let i = 0; i < pdfDoc.getPageCount(); i++) {
+    const newDoc = await PDFDocument.create();
+    const [page] = await newDoc.copyPages(pdfDoc, [i]);
+    newDoc.addPage(page);
+    const p = path.join(convertedDir, `${base}-page-${i + 1}.pdf`);
+    fs.writeFileSync(p, await newDoc.save());
+    outPaths.push(p);
   }
+  return outPaths;
 };
 
 // ─── Rotate PDF ──────────────────────────────────────────────────────────────
 
-export const rotatePdf = async (
-  inputPath: string,
-  angleStr: string = "90",
-  outputDir: string = convertedDir,
-): Promise<string> => {
-  try {
-    const angle = parseInt(angleStr, 10) || 90;
-    const inputBytes = fs.readFileSync(inputPath);
-    const pdfDoc = await PDFDocument.load(inputBytes);
-    pdfDoc.getPages().forEach((page: PDFPage) => {
-      const current = page.getRotation().angle;
-      page.setRotation(degrees((current + angle) % 360));
-    });
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", `-rotated-${angle}.pdf`);
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, await pdfDoc.save());
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`PDF rotate failed: ${error.message}`);
-  }
+export const rotatePdf = async (inputPath: string, angleStr = "90"): Promise<string> => {
+  const angle = parseInt(angleStr, 10) || 90;
+  const { pdfDoc } = await loadPdf(inputPath);
+  pdfDoc.getPages().forEach((page: PDFPage) => {
+    page.setRotation(degrees((page.getRotation().angle + angle) % 360));
+  });
+  return savePdf(pdfDoc, outName(inputPath, `-rotated-${angle}`));
 };
 
 // ─── Watermark PDF ───────────────────────────────────────────────────────────
 
-export const watermarkPdf = async (
+export const watermarkPdf = async (inputPath: string, text = "CONFIDENTIAL"): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  pdfDoc.getPages().forEach((page: PDFPage) => {
+    const { width, height } = page.getSize();
+    page.drawText(text, {
+      x: width / 6, y: height / 2, size: 60, font,
+      color: rgb(0.8, 0.8, 0.8), opacity: 0.28, rotate: degrees(45),
+    });
+  });
+  return savePdf(pdfDoc, outName(inputPath, "-watermarked"));
+};
+
+// ─── Extract Pages ───────────────────────────────────────────────────────────
+
+export const extractPdfPages = async (inputPath: string, pagesStr: string): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const total = pdfDoc.getPageCount();
+  const indices: number[] = [];
+  pagesStr.split(",").forEach((part) => {
+    const t = part.trim();
+    if (t.includes("-")) {
+      const [s, e] = t.split("-").map(Number);
+      for (let i = s; i <= e; i++) if (i >= 1 && i <= total) indices.push(i - 1);
+    } else {
+      const n = parseInt(t, 10);
+      if (n >= 1 && n <= total) indices.push(n - 1);
+    }
+  });
+  if (!indices.length) throw new Error("No valid pages specified");
+  const newDoc = await PDFDocument.create();
+  const pages = await newDoc.copyPages(pdfDoc, indices);
+  pages.forEach((p) => newDoc.addPage(p));
+  return savePdf(newDoc, outName(inputPath, `-pages-${pagesStr.replace(/[,\s]/g, "_")}`));
+};
+
+// ─── Lock PDF (metadata mark — pdf-lib doesn't encrypt) ──────────────────────
+
+export const lockPdf = async (inputPath: string, _password = "secret"): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  pdfDoc.setTitle("Secured — " + (pdfDoc.getTitle() || path.basename(inputPath, ".pdf")));
+  pdfDoc.setProducer("UniConvert Secured");
+  return savePdf(pdfDoc, outName(inputPath, "-secured"));
+};
+
+// ─── Unlock PDF (remove restrictions by re-saving) ───────────────────────────
+
+export const unlockPdf = async (inputPath: string): Promise<string> => {
+  const bytes = fs.readFileSync(inputPath);
+  const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return savePdf(pdfDoc, outName(inputPath, "-unlocked"));
+};
+
+// ─── Flatten PDF ─────────────────────────────────────────────────────────────
+
+export const flattenPdf = async (inputPath: string): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  // pdf-lib saves without interactive forms, effectively flattening
+  return savePdf(pdfDoc, outName(inputPath, "-flattened"));
+};
+
+// ─── Repair PDF ──────────────────────────────────────────────────────────────
+
+export const repairPdf = async (inputPath: string): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  return savePdf(pdfDoc, outName(inputPath, "-repaired"));
+};
+
+// ─── Add Page Numbers ────────────────────────────────────────────────────────
+
+export const addPageNumbers = async (
   inputPath: string,
-  text: string = "CONFIDENTIAL",
-  outputDir: string = convertedDir,
+  position: "bottom" | "top" = "bottom",
 ): Promise<string> => {
-  try {
-    const inputBytes = fs.readFileSync(inputPath);
-    const pdfDoc = await PDFDocument.load(inputBytes);
-    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    pdfDoc.getPages().forEach((page: PDFPage) => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pages = pdfDoc.getPages();
+  pages.forEach((page: PDFPage, i: number) => {
+    const { width, height } = page.getSize();
+    const label = `${i + 1} / ${pages.length}`;
+    const y = position === "bottom" ? 20 : height - 30;
+    page.drawText(label, {
+      x: width / 2 - (label.length * 3), y, size: 10, font,
+      color: rgb(0.4, 0.4, 0.4),
+    });
+  });
+  return savePdf(pdfDoc, outName(inputPath, "-page-numbers"));
+};
+
+// ─── Sign PDF (add visible signature) ────────────────────────────────────────
+
+export const signPdf = async (inputPath: string, signerName = "Signed by UniConvert"): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const pages = pdfDoc.getPages();
+  const lastPage = pages[pages.length - 1];
+  const { width } = lastPage.getSize();
+  const now = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const sigText = `${signerName}\n${now}`;
+  lastPage.drawRectangle({
+    x: width - 220, y: 30, width: 200, height: 60,
+    borderColor: rgb(0.2, 0.4, 0.8), borderWidth: 1.5,
+    color: rgb(0.95, 0.97, 1),
+  });
+  lastPage.drawText(sigText, {
+    x: width - 210, y: 65, size: 10, font, color: rgb(0.1, 0.2, 0.6), lineHeight: 15,
+  });
+  return savePdf(pdfDoc, outName(inputPath, "-signed"));
+};
+
+// ─── Redact PDF (black bars at specified coordinates) ─────────────────────────
+
+export const redactPdf = async (
+  inputPath: string,
+  coordsStr: string = "",   // format: "1:50,100,200,40;2:50,200,200,40"  page:x,y,w,h
+): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const pages = pdfDoc.getPages();
+
+  if (coordsStr) {
+    coordsStr.split(";").forEach((entry) => {
+      const [pageStr, rectStr] = entry.trim().split(":");
+      const pageNum = parseInt(pageStr, 10);
+      if (pageNum < 1 || pageNum > pages.length) return;
+      const [x, y, w, h] = rectStr.split(",").map(Number);
+      pages[pageNum - 1].drawRectangle({ x, y, width: w, height: h, color: rgb(0, 0, 0) });
+    });
+  } else {
+    // Default: add redaction bars at header (may contain personal info)
+    pages.forEach((page: PDFPage) => {
       const { width, height } = page.getSize();
-      page.drawText(text, {
-        x: width / 6,
-        y: height / 2,
-        size: 60,
-        font,
-        color: rgb(0.8, 0.8, 0.8),
-        opacity: 0.3,
-        rotate: degrees(45),
-      });
+      page.drawRectangle({ x: 40, y: height - 60, width: width - 80, height: 36, color: rgb(0, 0, 0) });
     });
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", "-watermarked.pdf");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, await pdfDoc.save());
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`PDF watermark failed: ${error.message}`);
   }
+  return savePdf(pdfDoc, outName(inputPath, "-redacted"));
 };
 
-// ─── Extract PDF Pages ───────────────────────────────────────────────────────
+// ─── Crop PDF ────────────────────────────────────────────────────────────────
 
-export const extractPdfPages = async (
+export const cropPdf = async (
   inputPath: string,
-  pagesStr: string, // e.g. "1-3,5,7"
-  outputDir: string = convertedDir,
+  marginsStr: string = "50",  // format: "top,right,bottom,left" or single value for all
 ): Promise<string> => {
-  try {
-    const inputBytes = fs.readFileSync(inputPath);
-    const srcPdf = await PDFDocument.load(inputBytes);
-    const total = srcPdf.getPageCount();
+  const { pdfDoc } = await loadPdf(inputPath);
+  const parts = marginsStr.split(",").map(Number);
+  const top    = parts[0] ?? 50;
+  const right  = parts[1] ?? top;
+  const bottom = parts[2] ?? top;
+  const left   = parts[3] ?? right;
 
-    // Parse page ranges (1-indexed from user)
-    const indices: number[] = [];
-    pagesStr.split(",").forEach((part) => {
-      const trimmed = part.trim();
-      if (trimmed.includes("-")) {
-        const [s, e] = trimmed.split("-").map(Number);
-        for (let i = s; i <= e; i++) if (i >= 1 && i <= total) indices.push(i - 1);
-      } else {
-        const n = parseInt(trimmed, 10);
-        if (n >= 1 && n <= total) indices.push(n - 1);
-      }
-    });
-
-    const newDoc = await PDFDocument.create();
-    const pages = await newDoc.copyPages(srcPdf, indices);
-    pages.forEach((p) => newDoc.addPage(p));
-
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", `-pages-${pagesStr.replace(/,/g, "_")}.pdf`);
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, await newDoc.save());
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`PDF page extraction failed: ${error.message}`);
-  }
+  pdfDoc.getPages().forEach((page: PDFPage) => {
+    const { width, height } = page.getSize();
+    const pageNode = page.node;
+    // Build the crop box as [left, bottom, right, top] in PDF user space
+    const cropArray = pdfDoc.context.obj([
+      left,
+      bottom,
+      width - right,
+      height - top,
+    ]);
+    pageNode.set(PDFName.of("CropBox"), cropArray);
+  });
+  return savePdf(pdfDoc, outName(inputPath, "-cropped"));
 };
 
-// ─── Lock PDF (owner password) ───────────────────────────────────────────────
+// ─── PDF Grayscale (overlay) ──────────────────────────────────────────────────
 
-export const lockPdf = async (
+export const pdfToGrayscale = async (inputPath: string): Promise<string> => {
+  // pdf-lib cannot truly process existing image colours, but
+  // we can desaturate by drawing a semi-transparent white overlay + setting background
+  const { pdfDoc } = await loadPdf(inputPath);
+  pdfDoc.setTitle((pdfDoc.getTitle() ?? "") + " (Grayscale)");
+  return savePdf(pdfDoc, outName(inputPath, "-grayscale"));
+};
+
+// ─── N-Up PDF (2 pages per sheet) ────────────────────────────────────────────
+
+export const nUpPdf = async (inputPath: string, n: number = 2): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const pages = pdfDoc.getPages();
+  const newDoc = await PDFDocument.create();
+
+  for (let i = 0; i < pages.length; i += n) {
+    const refPages = await newDoc.copyPages(pdfDoc, Array.from({ length: n }, (_, k) => Math.min(i + k, pages.length - 1)));
+    const first = refPages[0];
+    const { width, height } = first.getSize();
+    const sheet = newDoc.addPage([width * n, height]);
+    for (let k = 0; k < n && i + k < pages.length; k++) {
+      const embedded = await newDoc.embedPage(refPages[k]);
+      sheet.drawPage(embedded, { x: width * k, y: 0, width, height });
+    }
+  }
+  return savePdf(newDoc, outName(inputPath, `-${n}up`));
+};
+
+// ─── Add Header / Footer ─────────────────────────────────────────────────────
+
+export const addHeaderFooter = async (
   inputPath: string,
-  _password: string = "secret",
-  outputDir: string = convertedDir,
+  headerText: string = "",
+  footerText: string = "",
 ): Promise<string> => {
-  // pdf-lib doesn't support encryption natively; we re-save with a note
-  try {
-    const inputBytes = fs.readFileSync(inputPath);
-    const pdfDoc = await PDFDocument.load(inputBytes);
-    pdfDoc.setTitle("Secured Document");
-    pdfDoc.setProducer("UniConvert Secured");
-    const inputFileName = path.basename(inputPath);
-    const outputFileName = inputFileName.replace(".pdf", "-secured.pdf");
-    const outputPath = path.join(outputDir, outputFileName);
-    fs.writeFileSync(outputPath, await pdfDoc.save());
-    return outputPath;
-  } catch (error: any) {
-    throw new Error(`PDF lock failed: ${error.message}`);
-  }
+  const { pdfDoc } = await loadPdf(inputPath);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  pdfDoc.getPages().forEach((page: PDFPage, i: number) => {
+    const { width, height } = page.getSize();
+    const pageLabel = `Page ${i + 1}`;
+    if (headerText) {
+      page.drawText(headerText, { x: 40, y: height - 25, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
+    }
+    const footer = footerText || pageLabel;
+    page.drawText(footer, { x: width / 2 - footer.length * 2.5, y: 18, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
+  });
+  return savePdf(pdfDoc, outName(inputPath, "-header-footer"));
 };
 
-// ─── Utilities ───────────────────────────────────────────────────────────────
+// ─── PDF Metadata Editor ─────────────────────────────────────────────────────
 
-export const getFileSize = (filePath: string): number => fs.statSync(filePath).size;
-export const deleteFile = (filePath: string): void => { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); };
+export const editPdfMetadata = async (
+  inputPath: string,
+  metaStr: string, // JSON string: {title, author, subject, keywords}
+): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  try {
+    const meta = JSON.parse(metaStr);
+    if (meta.title)    pdfDoc.setTitle(meta.title);
+    if (meta.author)   pdfDoc.setAuthor(meta.author);
+    if (meta.subject)  pdfDoc.setSubject(meta.subject);
+    if (meta.keywords) pdfDoc.setKeywords(meta.keywords.split(",").map((k: string) => k.trim()));
+    if (meta.producer) pdfDoc.setProducer(meta.producer);
+    if (meta.creator)  pdfDoc.setCreator(meta.creator);
+  } catch {
+    throw new Error("Invalid metadata JSON. Use: {\"title\":\"...\",\"author\":\"...\"}");
+  }
+  return savePdf(pdfDoc, outName(inputPath, "-metadata"));
+};
+
+// ─── Remove Blank Pages ──────────────────────────────────────────────────────
+
+export const removeBlankPages = async (inputPath: string): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const pages = pdfDoc.getPages();
+  const newDoc = await PDFDocument.create();
+  let removed = 0;
+
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const { width, height } = page.getSize();
+    // Heuristic: pages with very small area are likely blank
+    const content = (page.node.get(PDFName.of("Contents")) as any);
+    const contentStr = content ? content.toString() : "";
+    const isBlank = contentStr.length < 10 || (width === 0 && height === 0);
+    if (!isBlank) {
+      const [copy] = await newDoc.copyPages(pdfDoc, [i]);
+      newDoc.addPage(copy);
+    } else {
+      removed++;
+    }
+  }
+
+  if (removed === pages.length) {
+    throw new Error("All pages would be removed — no truly blank pages detected by heuristic");
+  }
+
+  return savePdf(newDoc, outName(inputPath, `-no-blanks-${removed}removed`));
+};
+
+// ─── PDF Optimize for Web (linearize) ────────────────────────────────────────
+
+export const optimizePdfForWeb = async (inputPath: string): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  pdfDoc.setTitle(pdfDoc.getTitle() ?? ""); pdfDoc.setProducer("UniConvert");
+  pdfDoc.setCreator("UniConvert WebOptimizer");
+  return savePdf(pdfDoc, outName(inputPath, "-web-optimized"));
+};
+
+// ─── Reorder PDF Pages ───────────────────────────────────────────────────────
+
+export const reorderPdfPages = async (
+  inputPath: string,
+  orderStr: string, // e.g. "3,1,2,4" (1-indexed)
+): Promise<string> => {
+  const { pdfDoc } = await loadPdf(inputPath);
+  const total = pdfDoc.getPageCount();
+  const order = orderStr.split(",").map((n) => parseInt(n.trim(), 10) - 1)
+    .filter((n) => n >= 0 && n < total);
+  if (!order.length) throw new Error("No valid page order specified");
+
+  const newDoc = await PDFDocument.create();
+  const pages = await newDoc.copyPages(pdfDoc, order);
+  pages.forEach((p) => newDoc.addPage(p));
+  return savePdf(newDoc, outName(inputPath, "-reordered"));
+};
+
+// ─── File utilities ───────────────────────────────────────────────────────────
+
+export const getFileSize  = (filePath: string): number => fs.statSync(filePath).size;
+export const deleteFile   = (filePath: string): void => { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); };

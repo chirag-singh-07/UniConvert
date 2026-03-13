@@ -3,336 +3,249 @@ import path from "path";
 import fs from "fs";
 import { FileRecord } from "../models/FileRecord";
 import {
-  convertToPdfWithLibreOffice,
-  convertPdfToDocx,
-  convertImageToPdf,
-  convertTxtToPdf,
-  convertPdfToTxt,
-  convertDocxToTxt,
-  convertDocxToHtml,
-  convertPdfToHtml,
-  convertXmlToJson,
-  convertJsonToXml,
-  convertCsvToJson,
-  convertJsonToCsv,
-  convertCsvToPdf,
-  mergePdfs,
-  compressPdf,
-  splitPdf,
-  rotatePdf,
-  watermarkPdf,
-  extractPdfPages,
-  lockPdf,
+  convertToPdfWithLibreOffice, convertPdfToDocx,
+  convertImageToPdf, convertTxtToPdf,
+  convertPdfToTxt, convertPdfToHtml, convertPdfToCsv, convertPdfToJson, convertPdfToEpub,
+  convertDocxToTxt, convertDocxToHtml,
+  convertXmlToJson, convertJsonToXml, convertCsvToJson, convertJsonToCsv, convertCsvToPdf,
+  mergePdfs, compressPdf,
+  splitPdf, rotatePdf, watermarkPdf, extractPdfPages, lockPdf,
+  unlockPdf, flattenPdf, repairPdf, signPdf, redactPdf, cropPdf,
+  addPageNumbers, pdfToGrayscale, nUpPdf, addHeaderFooter, editPdfMetadata,
+  removeBlankPages, optimizePdfForWeb, reorderPdfPages,
   getFileSize,
-  deleteFile,
 } from "../services/converter";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const saveRecord = async (
-  file: Express.Multer.File,
-  conversionType: string,
-) => {
-  return FileRecord.create({
+const makeRecord = (file: Express.Multer.File, type: string) =>
+  FileRecord.create({
     originalName: file.originalname,
     fileName: file.filename,
-    conversionType,
+    conversionType: type,
     fileSize: file.size,
     status: "processing",
   });
-};
 
-const successResponse = (res: Response, fileRecord: any, convertedPath: string, extra: Record<string, any> = {}) => {
-  const convertedFileName = path.basename(convertedPath);
-  return res.json({
+const ok = (res: Response, record: any, outPath: string, extra: Record<string, any> = {}) => {
+  const name = path.basename(outPath);
+  record.convertedFileName = name;
+  record.convertedFileSize = getFileSize(outPath);
+  record.status = "completed";
+  record.save();
+  res.json({
     success: true,
     message: "Conversion completed successfully",
     data: {
-      id: fileRecord._id,
-      originalName: fileRecord.originalName,
-      convertedFileName,
-      originalSize: fileRecord.fileSize,
-      convertedSize: getFileSize(convertedPath),
-      downloadUrl: `/api/download/${convertedFileName}`,
+      id: record._id,
+      originalName: record.originalName,
+      convertedFileName: name,
+      originalSize: record.fileSize,
+      convertedSize: record.convertedFileSize,
+      downloadUrl: `/api/download/${name}`,
       ...extra,
     },
   });
 };
 
+const fail = async (res: Response, record: any, error: any) => {
+  record.status = "failed";
+  record.errorMessage = error.message;
+  await record.save();
+  console.error("Conversion error:", error);
+  res.status(500).json({ success: false, message: error.message || "Conversion failed" });
+};
+
 // ─── Single file convert ─────────────────────────────────────────────────────
 
 export const convertFile = async (req: Request, res: Response) => {
+  const { conversionType, extraParam } = req.body;
+  const file = req.file;
+  if (!file)           return res.status(400).json({ success: false, message: "No file uploaded" });
+  if (!conversionType) return res.status(400).json({ success: false, message: "Conversion type required" });
+
+  const record = await makeRecord(file, conversionType);
+  const inp    = file.path;
+
   try {
-    const { conversionType, extraParam } = req.body;
-    const file = req.file;
+    let out: string;
+    switch (conversionType) {
+      // ── LibreOffice ──────────────────────────────────────────────────────
+      case "docx-to-pdf": case "ppt-to-pdf": case "excel-to-pdf":
+        out = await convertToPdfWithLibreOffice(inp); break;
+      case "pdf-to-docx":
+        out = await convertPdfToDocx(inp); break;
 
-    if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
-    if (!conversionType) return res.status(400).json({ success: false, message: "Conversion type is required" });
+      // ── Image & Text ────────────────────────────────────────────────────
+      case "image-to-pdf":   out = await convertImageToPdf(inp); break;
+      case "txt-to-pdf":     out = await convertTxtToPdf(inp); break;
 
-    const fileRecord = await saveRecord(file, conversionType);
-    const inputPath = file.path;
+      // ── PDF → Other ─────────────────────────────────────────────────────
+      case "pdf-to-txt":     out = await convertPdfToTxt(inp); break;
+      case "pdf-to-html":    out = await convertPdfToHtml(inp); break;
+      case "pdf-to-csv":     out = await convertPdfToCsv(inp); break;
+      case "pdf-to-json":    out = await convertPdfToJson(inp); break;
+      case "pdf-to-epub":    out = await convertPdfToEpub(inp); break;
 
-    try {
-      let convertedPath: string;
+      // ── DOCX tools ──────────────────────────────────────────────────────
+      case "docx-to-txt":    out = await convertDocxToTxt(inp); break;
+      case "docx-to-html":   out = await convertDocxToHtml(inp); break;
 
-      switch (conversionType) {
-        // ── LibreOffice ──
-        case "docx-to-pdf":
-        case "ppt-to-pdf":
-        case "excel-to-pdf":
-          convertedPath = await convertToPdfWithLibreOffice(inputPath); break;
+      // ── Data formats ────────────────────────────────────────────────────
+      case "xml-to-json":    out = await convertXmlToJson(inp); break;
+      case "json-to-xml":    out = await convertJsonToXml(inp); break;
+      case "csv-to-json":    out = await convertCsvToJson(inp); break;
+      case "json-to-csv":    out = await convertJsonToCsv(inp); break;
+      case "csv-to-pdf": case "csv-to-xlsx":
+        out = await convertCsvToPdf(inp); break;
 
-        case "pdf-to-docx":
-          convertedPath = await convertPdfToDocx(inputPath); break;
-
-        // ── image ──
-        case "image-to-pdf":
-          convertedPath = await convertImageToPdf(inputPath); break;
-
-        // ── text & docs ──
-        case "txt-to-pdf":
-          convertedPath = await convertTxtToPdf(inputPath); break;
-
-        case "pdf-to-txt":
-          convertedPath = await convertPdfToTxt(inputPath); break;
-
-        case "docx-to-txt":
-          convertedPath = await convertDocxToTxt(inputPath); break;
-
-        case "docx-to-html":
-          convertedPath = await convertDocxToHtml(inputPath); break;
-
-        case "pdf-to-html":
-          convertedPath = await convertPdfToHtml(inputPath); break;
-
-        // ── data formats ──
-        case "xml-to-json":
-          convertedPath = await convertXmlToJson(inputPath); break;
-
-        case "json-to-xml":
-          convertedPath = await convertJsonToXml(inputPath); break;
-
-        case "csv-to-json":
-          convertedPath = await convertCsvToJson(inputPath); break;
-
-        case "json-to-csv":
-          convertedPath = await convertJsonToCsv(inputPath); break;
-
-        case "csv-to-pdf":
-        case "csv-to-xlsx":     // treat as csv-to-pdf for now
-          convertedPath = await convertCsvToPdf(inputPath); break;
-
-        // ── PDF tools ──
-        case "rotate-pdf":
-          convertedPath = await rotatePdf(inputPath, extraParam || "90"); break;
-
-        case "watermark-pdf":
-          convertedPath = await watermarkPdf(inputPath, extraParam || "CONFIDENTIAL"); break;
-
-        case "extract-pdf-pages":
-          convertedPath = await extractPdfPages(inputPath, extraParam || "1"); break;
-
-        case "lock-pdf":
-          convertedPath = await lockPdf(inputPath, extraParam || "secret"); break;
-
-        default:
-          throw new Error(`Unsupported conversion type: ${conversionType}`);
+      // ── PDF editing ─────────────────────────────────────────────────────
+      case "rotate-pdf":     out = await rotatePdf(inp, extraParam || "90"); break;
+      case "watermark-pdf":  out = await watermarkPdf(inp, extraParam || "CONFIDENTIAL"); break;
+      case "extract-pdf-pages": out = await extractPdfPages(inp, extraParam || "1"); break;
+      case "lock-pdf":       out = await lockPdf(inp, extraParam || "secret"); break;
+      case "unlock-pdf":     out = await unlockPdf(inp); break;
+      case "flatten-pdf":    out = await flattenPdf(inp); break;
+      case "repair-pdf":     out = await repairPdf(inp); break;
+      case "sign-pdf":       out = await signPdf(inp, extraParam || "Signed by UniConvert"); break;
+      case "redact-pdf":     out = await redactPdf(inp, extraParam || ""); break;
+      case "crop-pdf":       out = await cropPdf(inp, extraParam || "50"); break;
+      case "add-page-numbers": out = await addPageNumbers(inp, (extraParam || "bottom") as any); break;
+      case "pdf-grayscale":  out = await pdfToGrayscale(inp); break;
+      case "n-up-pdf":       out = await nUpPdf(inp, parseInt(extraParam || "2", 10)); break;
+      case "add-header-footer": {
+        const [header, footer] = (extraParam || "|Page").split("|");
+        out = await addHeaderFooter(inp, header, footer);
+        break;
       }
+      case "pdf-metadata":   out = await editPdfMetadata(inp, extraParam || "{}"); break;
+      case "remove-blank-pages": out = await removeBlankPages(inp); break;
+      case "optimize-pdf":   out = await optimizePdfForWeb(inp); break;
+      case "reorder-pages":  out = await reorderPdfPages(inp, extraParam || "1"); break;
 
-      fileRecord.convertedFileName = path.basename(convertedPath);
-      fileRecord.convertedFileSize = getFileSize(convertedPath);
-      fileRecord.status = "completed";
-      await fileRecord.save();
-
-      return successResponse(res, fileRecord, convertedPath);
-    } catch (error: any) {
-      fileRecord.status = "failed";
-      fileRecord.errorMessage = error.message;
-      await fileRecord.save();
-      throw error;
+      default:
+        throw new Error(`Unsupported conversion type: ${conversionType}`);
     }
-  } catch (error: any) {
-    console.error("Conversion error:", error);
-    res.status(500).json({ success: false, message: error.message || "Conversion failed" });
-  }
+
+    await (record as any).populate ? record : record.save();
+    return ok(res, record, out);
+  } catch (error: any) { return fail(res, record, error); }
 };
 
-// ─── Split PDF (special – multiple output files) ─────────────────────────────
+// ─── Split PDF ────────────────────────────────────────────────────────────────
 
 export const splitPdfFile = async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
+
+  const record = await makeRecord(file, "split-pdf");
   try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
-
-    const fileRecord = await saveRecord(file, "split-pdf");
-    try {
-      const outPaths = await splitPdf(file.path);
-      // Merge the split pages into a single downloadable zip-like PDF for simplicity
-      // (return ref to first split page – TODO: zip all pages)
-      const firstPage = outPaths[0];
-      fileRecord.convertedFileName = path.basename(firstPage);
-      fileRecord.convertedFileSize = outPaths.reduce((s, p) => s + getFileSize(p), 0);
-      fileRecord.status = "completed";
-      await fileRecord.save();
-
-      res.json({
-        success: true,
-        message: `PDF split into ${outPaths.length} pages`,
-        data: {
-          id: fileRecord._id,
-          originalName: fileRecord.originalName,
-          convertedFileName: path.basename(firstPage),
-          originalSize: fileRecord.fileSize,
-          convertedSize: fileRecord.convertedFileSize,
-          downloadUrl: `/api/download/${path.basename(firstPage)}`,
-          pageCount: outPaths.length,
-          allFiles: outPaths.map((p) => `/api/download/${path.basename(p)}`),
-        },
-      });
-    } catch (error: any) {
-      fileRecord.status = "failed";
-      fileRecord.errorMessage = error.message;
-      await fileRecord.save();
-      throw error;
-    }
-  } catch (error: any) {
-    console.error("Split error:", error);
-    res.status(500).json({ success: false, message: error.message || "Split failed" });
-  }
+    const outPaths = await splitPdf(file.path);
+    record.convertedFileName = path.basename(outPaths[0]);
+    record.convertedFileSize = outPaths.reduce((s, p) => s + getFileSize(p), 0);
+    record.status = "completed";
+    await record.save();
+    res.json({
+      success: true,
+      message: `PDF split into ${outPaths.length} pages`,
+      data: {
+        id: record._id,
+        originalName: record.originalName,
+        convertedFileName: path.basename(outPaths[0]),
+        originalSize: record.fileSize,
+        convertedSize: record.convertedFileSize,
+        downloadUrl: `/api/download/${path.basename(outPaths[0])}`,
+        pageCount: outPaths.length,
+        allFiles: outPaths.map((p) => `/api/download/${path.basename(p)}`),
+      },
+    });
+  } catch (error: any) { return fail(res, record, error); }
 };
 
 // ─── Merge PDFs ───────────────────────────────────────────────────────────────
 
 export const mergePdfFiles = async (req: Request, res: Response) => {
+  const files = req.files as Express.Multer.File[];
+  if (!files || files.length < 2)
+    return res.status(400).json({ success: false, message: "At least 2 PDF files required" });
+
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+  const record = await FileRecord.create({
+    originalName: `${files.length} PDFs merged`,
+    fileName: files.map((f) => f.filename).join(", "),
+    conversionType: "merge-pdf", fileSize: totalSize, status: "processing",
+  });
   try {
-    const files = req.files as Express.Multer.File[];
-    if (!files || files.length < 2)
-      return res.status(400).json({ success: false, message: "At least 2 PDF files are required" });
-
-    const allPdfs = files.every((f) => path.extname(f.originalname).toLowerCase() === ".pdf");
-    if (!allPdfs) return res.status(400).json({ success: false, message: "All files must be PDFs" });
-
-    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-    const fileRecord = await FileRecord.create({
-      originalName: `${files.length} PDFs`,
-      fileName: files.map((f) => f.filename).join(", "),
-      conversionType: "merge-pdf",
-      fileSize: totalSize,
-      status: "processing",
+    const outputFileName = `merged-${Date.now()}.pdf`;
+    const out = await mergePdfs(files.map((f) => f.path), outputFileName);
+    record.convertedFileName = path.basename(out);
+    record.convertedFileSize = getFileSize(out);
+    record.status = "completed";
+    await record.save();
+    res.json({
+      success: true, message: "PDFs merged successfully",
+      data: {
+        id: record._id,
+        originalName: record.originalName,
+        convertedFileName: record.convertedFileName,
+        originalSize: totalSize,
+        convertedSize: record.convertedFileSize,
+        downloadUrl: `/api/download/${record.convertedFileName}`,
+      },
     });
-
-    try {
-      const inputPaths = files.map((f) => f.path);
-      const outputFileName = `merged-${Date.now()}.pdf`;
-      const convertedPath = await mergePdfs(inputPaths, outputFileName);
-
-      fileRecord.convertedFileName = path.basename(convertedPath);
-      fileRecord.convertedFileSize = getFileSize(convertedPath);
-      fileRecord.status = "completed";
-      await fileRecord.save();
-
-      res.json({
-        success: true,
-        message: "PDFs merged successfully",
-        data: {
-          id: fileRecord._id,
-          convertedFileName: fileRecord.convertedFileName,
-          originalName: `${files.length} PDF files`,
-          originalSize: totalSize,
-          convertedSize: fileRecord.convertedFileSize,
-          downloadUrl: `/api/download/${fileRecord.convertedFileName}`,
-        },
-      });
-    } catch (error: any) {
-      fileRecord.status = "failed";
-      fileRecord.errorMessage = error.message;
-      await fileRecord.save();
-      throw error;
-    }
-  } catch (error: any) {
-    console.error("Merge error:", error);
-    res.status(500).json({ success: false, message: error.message || "Merge failed" });
-  }
+  } catch (error: any) { return fail(res, record, error); }
 };
 
 // ─── Compress PDF ─────────────────────────────────────────────────────────────
 
 export const compressPdfFile = async (req: Request, res: Response) => {
+  const { compressionLevel } = req.body;
+  const file = req.file;
+  if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
+
+  const level = (compressionLevel || "medium") as "low" | "medium" | "high";
+  const record = await makeRecord(file, "compress-pdf");
   try {
-    const { compressionLevel } = req.body;
-    const file = req.file;
-    if (!file) return res.status(400).json({ success: false, message: "No file uploaded" });
-    if (path.extname(file.originalname).toLowerCase() !== ".pdf")
-      return res.status(400).json({ success: false, message: "Only PDF files can be compressed" });
-
-    const level = compressionLevel || "medium";
-    if (!["low", "medium", "high"].includes(level))
-      return res.status(400).json({ success: false, message: "Invalid compression level" });
-
-    const fileRecord = await saveRecord(file, "compress-pdf");
-    try {
-      const convertedPath = await compressPdf(file.path, level);
-      fileRecord.convertedFileName = path.basename(convertedPath);
-      fileRecord.convertedFileSize = getFileSize(convertedPath);
-      fileRecord.status = "completed";
-      await fileRecord.save();
-
-      const compressionRatio = ((1 - fileRecord.convertedFileSize! / fileRecord.fileSize) * 100).toFixed(2);
-      res.json({
-        success: true,
-        message: "PDF compressed successfully",
-        data: {
-          id: fileRecord._id,
-          originalName: fileRecord.originalName,
-          convertedFileName: fileRecord.convertedFileName,
-          originalSize: fileRecord.fileSize,
-          convertedSize: fileRecord.convertedFileSize,
-          compressionRatio: `${compressionRatio}%`,
-          downloadUrl: `/api/download/${fileRecord.convertedFileName}`,
-        },
-      });
-    } catch (error: any) {
-      fileRecord.status = "failed";
-      fileRecord.errorMessage = error.message;
-      await fileRecord.save();
-      throw error;
-    }
-  } catch (error: any) {
-    console.error("Compression error:", error);
-    res.status(500).json({ success: false, message: error.message || "Compression failed" });
-  }
+    const out = await compressPdf(file.path, level);
+    record.convertedFileName = path.basename(out);
+    record.convertedFileSize = getFileSize(out);
+    record.status = "completed";
+    await record.save();
+    const ratio = ((1 - record.convertedFileSize! / record.fileSize) * 100).toFixed(2);
+    res.json({
+      success: true, message: "PDF compressed successfully",
+      data: {
+        id: record._id,
+        originalName: record.originalName,
+        convertedFileName: record.convertedFileName,
+        originalSize: record.fileSize,
+        convertedSize: record.convertedFileSize,
+        compressionRatio: `${ratio}%`,
+        downloadUrl: `/api/download/${record.convertedFileName}`,
+      },
+    });
+  } catch (error: any) { return fail(res, record, error); }
 };
 
-// ─── Download ────────────────────────────────────────────────────────────────
+// ─── Download ─────────────────────────────────────────────────────────────────
 
 export const downloadFile = async (req: Request, res: Response) => {
-  try {
-    const { filename } = req.params;
-    const convertedDir = process.env.CONVERTED_DIR || "./converted";
-    const filePath = path.join(convertedDir, filename);
-    if (!fs.existsSync(filePath))
-      return res.status(404).json({ success: false, message: "File not found" });
-
-    const fileRecord = await FileRecord.findOne({ convertedFileName: filename });
-    if (fileRecord) { fileRecord.downloadCount += 1; await fileRecord.save(); }
-    res.download(filePath);
-  } catch (error: any) {
-    console.error("Download error:", error);
-    res.status(500).json({ success: false, message: "Download failed" });
-  }
+  const { filename } = req.params;
+  const dir  = process.env.CONVERTED_DIR || "./converted";
+  const filePath = path.join(dir, filename);
+  if (!fs.existsSync(filePath))
+    return res.status(404).json({ success: false, message: "File not found" });
+  const record = await FileRecord.findOne({ convertedFileName: filename });
+  if (record) { record.downloadCount += 1; await record.save(); }
+  res.download(filePath);
 };
 
-// ─── History ─────────────────────────────────────────────────────────────────
+// ─── History ──────────────────────────────────────────────────────────────────
 
 export const getHistory = async (req: Request, res: Response) => {
-  try {
-    const { limit = 50, status } = req.query;
-    const query: any = {};
-    if (status) query.status = status;
-    const records = await FileRecord.find(query).sort({ createdAt: -1 }).limit(parseInt(limit as string));
-    res.json({ success: true, data: records });
-  } catch (error: any) {
-    console.error("History error:", error);
-    res.status(500).json({ success: false, message: "Failed to fetch history" });
-  }
+  const { limit = 50, status } = req.query;
+  const q: any = {};
+  if (status) q.status = status;
+  const records = await FileRecord.find(q).sort({ createdAt: -1 }).limit(parseInt(limit as string));
+  res.json({ success: true, data: records });
 };

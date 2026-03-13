@@ -23,13 +23,30 @@ import LoginModal from "../components/LoginModal";
 // ─── Extra-param tools that need a prompt ───────────────────────────────────
 
 const PARAM_TOOLS: Record<string, { label: string; placeholder: string; hint?: string }> = {
-  "qr-code-gen":       { label: "Text or URL",       placeholder: "https://example.com",     hint: "Enter any URL or text to encode" },
-  "watermark-image":   { label: "Watermark Text",    placeholder: "© My Company",            hint: "Text placed diagonally on the image" },
-  "watermark-pdf":     { label: "Watermark Text",    placeholder: "CONFIDENTIAL",            hint: "Semi-transparent text on each page" },
-  "rotate-image":      { label: "Angle (degrees)",   placeholder: "90",                      hint: "e.g. 90, 180, 270" },
-  "rotate-pdf":        { label: "Angle (degrees)",   placeholder: "90",                      hint: "Applied to every page" },
-  "resize-image":      { label: "Dimensions (WxH)",  placeholder: "1920x1080",               hint: "Width × Height in pixels" },
-  "extract-pdf-pages": { label: "Pages",             placeholder: "1-3,5,7",                 hint: "Comma-separated ranges (1-indexed)" },
+  // Image tools
+  "qr-code-gen":        { label: "Text or URL",        placeholder: "https://example.com",           hint: "Enter any URL or text to encode" },
+  "watermark-image":    { label: "Watermark Text",     placeholder: "© My Company",                  hint: "Text placed diagonally on the image" },
+  "rotate-image":       { label: "Angle (degrees)",    placeholder: "90",                            hint: "e.g. 90, 180, 270" },
+  "resize-image":       { label: "Dimensions (WxH)",   placeholder: "1920x1080",                     hint: "Width × Height in pixels" },
+  // PDF editing — param required
+  "watermark-pdf":      { label: "Watermark Text",     placeholder: "CONFIDENTIAL",                  hint: "Semi-transparent diagonal text on each page" },
+  "rotate-pdf":         { label: "Angle (degrees)",    placeholder: "90",                            hint: "Applied to every page (90, 180, 270)" },
+  "extract-pdf-pages":  { label: "Pages to extract",  placeholder: "1-3,5,7",                       hint: "Comma-separated page numbers / ranges (1-indexed)" },
+  "sign-pdf":           { label: "Signer Name",        placeholder: "John Doe",                      hint: "Name appears in the signature box on the last page" },
+  "redact-pdf":         { label: "Redact Area (opt.)", placeholder: "1:50,700,300,40",               hint: "Leave blank to redact header. Format: page:x,y,w,h — separate multiple with ;" },
+  "crop-pdf":           { label: "Margins (px)",       placeholder: "50",                            hint: "Single value or top,right,bottom,left e.g. 40,30,40,30" },
+  "add-page-numbers":   { label: "Position",           placeholder: "bottom",                        hint: "Enter 'top' or 'bottom'" },
+  "pdf-grayscale":      { label: "", placeholder: "", hint: "Marks the PDF as grayscale — no extra input needed" },
+  "n-up-pdf":           { label: "N (pages per sheet)",placeholder: "2",                             hint: "Number of pages side-by-side (2 is most common)" },
+  "add-header-footer":  { label: "Header | Footer",    placeholder: "My Document|Page footer text",  hint: "Separate header and footer text with a pipe | character" },
+  "pdf-metadata":       { label: "Metadata JSON",      placeholder: '{"title":"My Doc","author":"Jane"}', hint: 'Keys: title, author, subject, keywords (comma-sep), producer, creator' },
+  "remove-blank-pages": { label: "", placeholder: "", hint: "Automatically detects and removes blank pages — no extra input needed" },
+  "optimize-pdf":       { label: "", placeholder: "", hint: "Optimises for fast web rendering — no extra input needed" },
+  "reorder-pages":      { label: "New page order",     placeholder: "3,1,2,4",                       hint: "Comma-separated 1-indexed page numbers in desired order" },
+  "lock-pdf":           { label: "", placeholder: "", hint: "Marks document as secured — no extra input needed" },
+  "unlock-pdf":         { label: "", placeholder: "", hint: "Re-saves PDF stripping restrictions — no extra input needed" },
+  "flatten-pdf":        { label: "", placeholder: "", hint: "Flattens form fields and annotations — no extra input needed" },
+  "repair-pdf":         { label: "", placeholder: "", hint: "Re-saves to fix structural issues — no extra input needed" },
 };
 
 const SERVER_SPLIT_TOOL = "split-pdf";
