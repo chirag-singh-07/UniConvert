@@ -1,10 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, Moon, Sun } from "lucide-react";
+import { FileText, Moon, Sun, User as UserIcon, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
+import LoginModal from "./LoginModal";
+import { useAuth } from "../contexts/AuthContext";
 
 const Navbar = () => {
   const location = useLocation();
   const [darkMode, setDarkMode] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     // Check for saved theme preference or default to light mode
@@ -59,6 +63,16 @@ const Navbar = () => {
               Home
             </Link>
             <Link
+              to="/workspace"
+              className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                isActive("/workspace")
+                  ? "bg-blue-600 text-white shadow-lg"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              Workspace
+            </Link>
+            <Link
               to="/history"
               className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
                 isActive("/history")
@@ -79,6 +93,34 @@ const Navbar = () => {
               About
             </Link>
 
+            {/* Auth section */}
+            <div className="flex items-center ml-2 border-l border-slate-200 dark:border-slate-700 pl-4 space-x-2">
+              {user ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                      <UserIcon className="w-4 h-4" />
+                    </div>
+                    <span className="hidden sm:inline-block">{user.name}</span>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="p-2 text-slate-500 hover:text-red-500 transition-colors ml-2"
+                    title="Log Out"
+                  >
+                    <LogOut className="w-5 h-5" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowLoginModal(true)}
+                  className="px-4 py-2 font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                >
+                  Log In
+                </button>
+              )}
+            </div>
+
             {/* Dark Mode Toggle */}
             <button
               onClick={toggleDarkMode}
@@ -94,6 +136,10 @@ const Navbar = () => {
           </div>
         </div>
       </div>
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)} 
+      />
     </nav>
   );
 };

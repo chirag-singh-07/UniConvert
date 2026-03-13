@@ -49,15 +49,15 @@ export interface HistoryResponse {
 export const convertFile = async (
   file: File,
   conversionType: string,
+  extraParam?: string,
 ): Promise<ConversionResponse> => {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("conversionType", conversionType);
+  if (extraParam) formData.append("extraParam", extraParam);
 
   const response = await api.post<ConversionResponse>("/convert", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+    headers: { "Content-Type": "multipart/form-data" },
   });
 
   return response.data;

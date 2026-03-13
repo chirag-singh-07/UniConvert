@@ -3,17 +3,21 @@ import { Toaster } from "react-hot-toast";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Home from "./pages/Home";
+import Workspace from "./pages/Workspace";
 import History from "./pages/History";
 import About from "./pages/About";
+import { AuthProvider } from "./contexts/AuthContext";
 
 function App() {
   return (
-    <Router>
-      <div className="min-h-screen flex flex-col">
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen flex flex-col">
         <Navbar />
         <main className="flex-grow">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/workspace" element={<Workspace />} />
             <Route path="/history" element={<History />} />
             <Route path="/about" element={<About />} />
           </Routes>
@@ -43,8 +47,9 @@ function App() {
             },
           }}
         />
-      </div>
-    </Router>
+        </div>
+      </Router>
+    </AuthProvider>
   );
 }
 
