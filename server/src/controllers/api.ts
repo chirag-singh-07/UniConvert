@@ -6,6 +6,7 @@ import {
   convertToPdfWithLibreOffice, convertPdfToDocx,
   convertImageToPdf, convertTxtToPdf, convertMdToPdf, convertHtmlToPdfAsRenderer,
   convertPdfToTxt, convertPdfToHtml, convertPdfToCsv, convertPdfToJson, convertPdfToEpub,
+  convertPdfToPpt, convertPdfToExcel, convertPdfToRtf, convertPdfToMd, convertPdfToXml,
   convertDocxToTxt, convertDocxToHtml,
   convertXmlToJson, convertJsonToXml, convertCsvToJson, convertJsonToCsv, convertCsvToPdf,
   mergePdfs, compressPdf,
@@ -88,6 +89,11 @@ export const convertFile = async (req: Request, res: Response) => {
       case "pdf-to-csv":     out = await convertPdfToCsv(inp); break;
       case "pdf-to-json":    out = await convertPdfToJson(inp); break;
       case "pdf-to-epub":    out = await convertPdfToEpub(inp); break;
+      case "pdf-to-ppt":     out = await convertPdfToPpt(inp); break;
+      case "pdf-to-excel":   out = await convertPdfToExcel(inp); break;
+      case "pdf-to-rtf":     out = await convertPdfToRtf(inp); break;
+      case "pdf-to-md":      out = await convertPdfToMd(inp); break;
+      case "pdf-to-xml":     out = await convertPdfToXml(inp); break;
 
       // ── DOCX tools ──────────────────────────────────────────────────────
       case "docx-to-txt":    out = await convertDocxToTxt(inp); break;

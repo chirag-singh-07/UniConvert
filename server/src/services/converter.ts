@@ -165,6 +165,57 @@ export const convertPdfToDocx = async (
   }
 };
 
+export const convertPdfToPpt = async (
+  inputPath: string,
+  outputDir: string = convertedDir,
+): Promise<string> => {
+  try {
+    const command = `soffice --headless --infilter="impress_pdf_import" --convert-to pptx --outdir "${outputDir}" "${inputPath}"`;
+    await execAsync(command);
+    const inputFileName = path.basename(inputPath);
+    const outputFileName = inputFileName.replace(".pdf", ".pptx");
+    const outputPath = path.join(outputDir, outputFileName);
+    if (!fs.existsSync(outputPath)) throw new Error("Conversion failed: Output file not created");
+    return outputPath;
+  } catch (error: any) {
+    throw new Error(`Conversion failed: ${error.message}`);
+  }
+};
+
+export const convertPdfToExcel = async (
+  inputPath: string,
+  outputDir: string = convertedDir,
+): Promise<string> => {
+  try {
+    const command = `soffice --headless --infilter="calc_pdf_import" --convert-to xlsx --outdir "${outputDir}" "${inputPath}"`;
+    await execAsync(command);
+    const inputFileName = path.basename(inputPath);
+    const outputFileName = inputFileName.replace(".pdf", ".xlsx");
+    const outputPath = path.join(outputDir, outputFileName);
+    if (!fs.existsSync(outputPath)) throw new Error("Conversion failed: Output file not created");
+    return outputPath;
+  } catch (error: any) {
+    throw new Error(`Conversion failed: ${error.message}`);
+  }
+};
+
+export const convertPdfToRtf = async (
+  inputPath: string,
+  outputDir: string = convertedDir,
+): Promise<string> => {
+  try {
+    const command = `soffice --headless --convert-to rtf --outdir "${outputDir}" "${inputPath}"`;
+    await execAsync(command);
+    const inputFileName = path.basename(inputPath);
+    const outputFileName = inputFileName.replace(".pdf", ".rtf");
+    const outputPath = path.join(outputDir, outputFileName);
+    if (!fs.existsSync(outputPath)) throw new Error("Conversion failed: Output file not created");
+    return outputPath;
+  } catch (error: any) {
+    throw new Error(`Conversion failed: ${error.message}`);
+  }
+};
+
 // ─── Image to PDF ────────────────────────────────────────────────────────────
 
 export const convertImageToPdf = async (inputPath: string): Promise<string> => {
@@ -273,6 +324,44 @@ export const convertPdfToCsv = async (inputPath: string): Promise<string> => {
   const csv = `"Line"\n` + rows.join("\n");
   const outputPath = outName(inputPath, "", "csv");
   fs.writeFileSync(outputPath, csv, "utf-8");
+  return outputPath;
+};
+
+// ─── PDF → MD ────────────────────────────────────────────────────────────────
+
+export const convertPdfToMd = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const text = pdfData.text;
+  let md = `# ${path.basename(inputPath, ".pdf")}\n\n`;
+  const paragraphs = text.split(/\n\s*\n/);
+  paragraphs.forEach(p => {
+    let clean = p.replace(/\n/g, " ").trim();
+    if (clean) md += `${clean}\n\n`;
+  });
+  const outputPath = outName(inputPath, "", "md");
+  fs.writeFileSync(outputPath, md.trim(), "utf-8");
+  return outputPath;
+};
+
+// ─── PDF → XML ───────────────────────────────────────────────────────────────
+
+export const convertPdfToXml = async (inputPath: string): Promise<string> => {
+  const pdfData = await parsePdf(fs.readFileSync(inputPath));
+  const safeText = pdfData.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<document>
+  <metadata>
+    <title>${path.basename(inputPath, ".pdf")}</title>
+    <pages>${pdfData.numpages || ""}</pages>
+  </metadata>
+  <content>
+    ${safeText.split("\n").map(l => `<line>${l}</line>`).join("\n    ")}
+  </content>
+</document>`;
+
+  const outputPath = outName(inputPath, "", "xml");
+  fs.writeFileSync(outputPath, xml, "utf-8");
   return outputPath;
 };
 

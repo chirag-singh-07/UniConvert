@@ -147,15 +147,224 @@ export async function watermarkImage(file: File, text = "© UniConvert"): Promis
 
 export async function cropImage(file: File, x = 0, y = 0, w?: number, h?: number): Promise<ClientResult> {
   const img = await loadImage(file);
-  const cw = w ?? img.naturalWidth - x;
-  const ch = h ?? img.naturalHeight - y;
+  const cw = w || img.naturalWidth;
+  const ch = h || img.naturalHeight;
   const canvas = document.createElement("canvas");
   canvas.width = cw; canvas.height = ch;
   canvas.getContext("2d")!.drawImage(img, x, y, cw, ch, 0, 0, cw, ch);
   return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-cropped.png` };
 }
 
-// ─── QR Code ─────────────────────────────────────────────────────────────────
+export async function blurImage(file: File, blurAmount = 5): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.filter = `blur(${blurAmount}px)`;
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-blurred.png` };
+}
+
+export async function invertImage(file: File): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.filter = `invert(100%)`;
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-inverted.png` };
+}
+
+export async function sepiaImage(file: File): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.filter = `sepia(100%)`;
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-sepia.png` };
+}
+
+export async function flipImage(file: File, direction = "horizontal"): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  if (direction === "horizontal") {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  } else {
+    ctx.translate(0, canvas.height);
+    ctx.scale(1, -1);
+  }
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-flipped.png` };
+}
+
+export async function pixelateImage(file: File, pixelSize = 10): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  
+  // Scale down
+  const sw = Math.max(1, Math.floor(canvas.width / pixelSize));
+  const sh = Math.max(1, Math.floor(canvas.height / pixelSize));
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = sw; tempCanvas.height = sh;
+  const tempCtx = tempCanvas.getContext("2d")!;
+  tempCtx.drawImage(img, 0, 0, sw, sh);
+  
+  // Scale back up
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tempCanvas, 0, 0, sw, sh, 0, 0, canvas.width, canvas.height);
+  
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-pixelated.png` };
+}
+
+export async function brightnessImage(file: File, amount = 1.2): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.filter = `brightness(${amount * 100}%)`;
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-brightness.png` };
+}
+
+export async function contrastImage(file: File, amount = 1.2): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.filter = `contrast(${amount * 100}%)`;
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-contrast.png` };
+}
+
+export async function sharpnessImage(file: File): Promise<ClientResult> {
+  // Simple convolution filter for sharpening
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+  
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const pixels = imageData.data;
+  const side = Math.round(Math.sqrt(9));
+  const halfSide = Math.floor(side / 2);
+  const weights = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+  const output = ctx.createImageData(w, h);
+  const dst = output.data;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0;
+      for (let cy = 0; cy < side; cy++) {
+        for (let cx = 0; cx < side; cx++) {
+          const scy = y + cy - halfSide;
+          const scx = x + cx - halfSide;
+          if (scy >= 0 && scy < h && scx >= 0 && scx < w) {
+            const srcOff = (scy * w + scx) * 4;
+            const wt = weights[cy * side + cx];
+            r += pixels[srcOff] * wt;
+            g += pixels[srcOff + 1] * wt;
+            b += pixels[srcOff + 2] * wt;
+          }
+        }
+      }
+      const dstOff = (y * w + x) * 4;
+      dst[dstOff] = r;
+      dst[dstOff + 1] = g;
+      dst[dstOff + 2] = b;
+      dst[dstOff + 3] = pixels[dstOff + 3];
+    }
+  }
+  ctx.putImageData(output, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-sharp.png` };
+}
+
+export async function extractImageInfo(file: File): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const info = {
+    Filename: file.name,
+    Type: file.type,
+    Size: `${(file.size / 1024).toFixed(2)} KB`,
+    Dimensions: `${img.naturalWidth} x ${img.naturalHeight} px`,
+    AspectRatio: (img.naturalWidth / img.naturalHeight).toFixed(2),
+    LastModified: new Date(file.lastModified).toLocaleString(),
+  };
+  
+  const report = `Image Information — ${file.name}
+${"=".repeat(40)}
+${Object.entries(info).map(([k, v]) => `${k.padEnd(15)}: ${v}`).join("\n")}
+`;
+
+  const blob = new Blob([report], { type: "text/plain" });
+  return { 
+    blob, 
+    filename: `${stripExt(file.name)}-info.txt`,
+    specialData: info 
+  };
+}
+
+export async function roundCorners(file: File, radius = 50): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  
+  ctx.beginPath();
+  ctx.moveTo(radius, 0);
+  ctx.lineTo(canvas.width - radius, 0);
+  ctx.quadraticCurveTo(canvas.width, 0, canvas.width, radius);
+  ctx.lineTo(canvas.width, canvas.height - radius);
+  ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height);
+  ctx.lineTo(radius, canvas.height);
+  ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius);
+  ctx.lineTo(0, radius);
+  ctx.quadraticCurveTo(0, 0, radius, 0);
+  ctx.closePath();
+  ctx.clip();
+  
+  ctx.drawImage(img, 0, 0);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-rounded.png` };
+}
+
+export async function imageBorder(file: File, borderSize = 20, color = "#000000"): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth + borderSize * 2;
+  canvas.height = img.naturalHeight + borderSize * 2;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, borderSize, borderSize);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-bordered.png` };
+}
+
+export async function vignetteImage(file: File, amount = 0.5): Promise<ClientResult> {
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+  
+  const outerRadius = Math.sqrt(Math.pow(canvas.width / 2, 2) + Math.pow(canvas.height / 2, 2));
+  const gradient = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, 0,
+    canvas.width / 2, canvas.height / 2, outerRadius
+  );
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, `rgba(0,0,0,${amount})`);
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  return { blob: await canvasToBlob(canvas, "image/png"), filename: `${stripExt(file.name)}-vignette.png` };
+}
 
 export async function generateQrCode(text: string): Promise<ClientResult> {
   const dataUrl = await QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: "#1e293b", light: "#ffffff" } });
@@ -382,7 +591,9 @@ export const CLIENT_SIDE_TOOLS = new Set([
   "jpg-to-png", "png-to-jpg", "webp-to-jpg", "jpg-to-webp", "png-to-webp",
   "gif-to-webp", "bmp-to-png", "ico-to-png", "svg-to-png",
   "resize-image", "compress-img", "rotate-image", "grayscale-image",
-  "watermark-image", "crop-image",
+  "watermark-image", "crop-image", "blur-image", "invert-image", "sepia-image", "flip-image",
+  "brightness-image", "contrast-image", "sharpness-image", "pixelate-image", "image-info",
+  "round-corners", "image-border", "vignette-image",
   "qr-code-gen",
   "word-count",
   "base64-encode",
@@ -415,7 +626,25 @@ export async function processClientSide(
     case "rotate-image":     return rotateImage(file, parseFloat(extraParam || "90"));
     case "grayscale-image":  return grayscaleImage(file);
     case "watermark-image":  return watermarkImage(file, extraParam || "© UniConvert");
-    case "crop-image":       return cropImage(file);
+    case "crop-image": {
+      const parts = (extraParam || "").split(",").map(Number);
+      return cropImage(file, parts[0] || 0, parts[1] || 0, parts[2], parts[3]);
+    }
+    case "blur-image":       return blurImage(file, parseFloat(extraParam || "5"));
+    case "invert-image":     return invertImage(file);
+    case "sepia-image":      return sepiaImage(file);
+    case "flip-image":       return flipImage(file, extraParam || "horizontal");
+    case "brightness-image": return brightnessImage(file, parseFloat(extraParam || "1.2"));
+    case "contrast-image":   return contrastImage(file, parseFloat(extraParam || "1.2"));
+    case "sharpness-image":  return sharpnessImage(file);
+    case "pixelate-image":   return pixelateImage(file, parseInt(extraParam || "10"));
+    case "image-info":       return extractImageInfo(file);
+    case "round-corners":    return roundCorners(file, parseInt(extraParam || "50"));
+    case "image-border": {
+      const [size, color] = (extraParam || "").split(",");
+      return imageBorder(file, parseInt(size || "20"), color || "#000000");
+    }
+    case "vignette-image":   return vignetteImage(file, parseFloat(extraParam || "0.5"));
     case "qr-code-gen":      return generateQrCode(extraParam || file.name);
     case "word-count":       return wordCount(file);
     case "base64-encode":    return base64Encode(file);
