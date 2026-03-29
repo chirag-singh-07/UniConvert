@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniConvert - Diagram Export Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #ffffff;
+            color: #000;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .card {
+            border: 1.5px solid #000;
+            margin-bottom: 50px;
+            padding: 30px;
+            background: #fff;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid #000;
+            padding-bottom: 15px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .btn {
+            background: ivory;
+            border: 1.5px solid #000;
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background: #000;
+            color: #fff;
+        }
+
+        .viewport {
+            min-height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow-x: auto;
+        }
+
+        .mermaid {
+            width: 100%;
+            text-align: center;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px;
+            border-top: 2px solid #000;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>UniConvert Project Diagrams</h1>
+        <p>Official Technical Visuals for Documentation and Reports</p>
+    </div>
+
+    <!-- Group of all diagrams -->
+    <div id="diagrams">
+        <!-- USE CASE -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">User Use Case Diagram</div>
+                <button class="btn" onclick="exportPng('use-case')">Export PNG</button>
+            </div>
+            <div class="viewport" id="use-case-container">
+                <div class="mermaid" id="use-case">
+graph LR
+    User["<div style='text-align:center'><svg width='55' height='75' viewBox='0 0 100 100'><circle cx='50' cy='20' r='15' fill='none' stroke='black' stroke-width='6'/><line x1='50' y1='35' x2='50' y2='70' stroke='black' stroke-width='6'/><line x1='50' y1='45' x2='25' y2='40' stroke='black' stroke-width='6'/><line x1='50' y1='45' x2='75' y2='40' stroke='black' stroke-width='6'/><line x1='50' y1='70' x2='25' y2='95' stroke='black' stroke-width='6'/><line x1='50' y1='70' x2='75' y2='95' stroke='black' stroke-width='6'/></svg><br/>User</div>"]
+    
+    subgraph "System Boundary"
+        direction TB
+        UC1(["Upload Document"])
+        UC2(["Convert DOCX to PDF"])
+        UC3(["Convert PDF to DOCX"])
+        UC4(["Merge & Compress PDFs"])
+        UC5(["View History"])
+    end
+
+    User --> UC1
+    User --> UC2
+    User --> UC3
+    User --> UC4
+    User --> UC5
+    
+    style User fill:none,stroke:none
+    style UC1 fill:#fff,stroke:#000
+    style UC2 fill:#fff,stroke:#000
+    style UC3 fill:#fff,stroke:#000
+    style UC4 fill:#fff,stroke:#000
+    style UC5 fill:#fff,stroke:#000
+                </div>
+            </div>
+        </div>
+
+        <!-- DFD -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Data Flow Diagram (Level 0)</div>
+                <button class="btn" onclick="exportPng('dfd')">Export PNG</button>
+            </div>
+            <div class="viewport" id="dfd-container">
+                <div class="mermaid" id="dfd">
+graph LR
+    User((User Actor))
+    System[UniConvert System]
+    Tools[Process Engines]
+    DB[(Database Storage)]
+
+    User -->|Upload / Request| System
+    System -->|Converted Output| User
+    System -->|Exec Operation| Tools
+    Tools -->|Result Data| System
+    System -->|Save History| DB
+
+    style User fill:#fff,stroke:#000
+    style System fill:#fff,stroke:#000
+    style Tools fill:#fff,stroke:#000
+    style DB fill:#fff,stroke:#000
+                </div>
+            </div>
+        </div>
+
+        <!-- SEQUENCE -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Process Sequence Diagram</div>
+                <button class="btn" onclick="exportPng('sequence')">Export PNG</button>
+            </div>
+            <div class="viewport" id="sequence-container">
+                <div class="mermaid" id="sequence">
+sequenceDiagram
+    actor User
+    participant App as Frontend Website
+    participant Server as Backend Server
+    participant FileSys as Storage System
+
+    User->>App: Choose File
+    App->>Server: Send Request
+    Server->>FileSys: Write Upload
+    Server->>Server: Execute Process
+    Server->>FileSys: Write Result
+    Server-->>App: Conversion Complete
+    App->>User: Serve Result
+                </div>
+            </div>
+        </div>
+
+        <!-- ER -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Database Entity Relationship (ER)</div>
+                <button class="btn" onclick="exportPng('er')">Export PNG</button>
+            </div>
+            <div class="viewport" id="er-container">
+                <div class="mermaid" id="er">
+erDiagram
+    CONVERSION ||--o{ FILE_METADATA : relates_to
+    CONVERSION {
+        string _id PK
+        string status
+        string type
+    }
+    FILE_METADATA {
+        string fileName
+        string path
+        number size
+    }
+                </div>
+            </div>
+        </div>
+
+        <!-- ARCH -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">System Architecture Layer Diagram</div>
+                <button class="btn" onclick="exportPng('arch')">Export PNG</button>
+            </div>
+            <div class="viewport" id="arch-container">
+                <div class="mermaid" id="arch">
+graph TB
+    subgraph "UI Layer"
+        UI[React.js App]
+    end
+    subgraph "API Layer"
+        Server[Express Server]
+    end
+    subgraph "Logic Layer"
+        Libre[LibreOffice / GS]
+    end
+    subgraph "Data Layer"
+        Mongo[(MongoDB)]
+        Disk[/Local Disk/]
+    end
+
+    UI --> Server
+    Server --> Libre
+    Server --> Mongo
+    Server --> Disk
+
+    style UI fill:#fff,stroke:#000
+    style Server fill:#fff,stroke:#000
+    style Libre fill:#fff,stroke:#000
+    style Mongo fill:#fff,stroke:#000
+    style Disk fill:#fff,stroke:#000
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; UniConvert Technical Portfolio. Generated for Official Report.</p>
+    </footer>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#ffffff',
+                primaryTextColor: '#000000',
+                primaryBorderColor: '#000000',
+                lineColor: '#000000',
+                secondaryColor: '#ffffff',
+                tertiaryColor: '#ffffff',
+                mainBkg: '#ffffff',
+                nodeBorder: '#000000',
+                clusterBkg: '#ffffff',
+                clusterBorder: '#000000'
+            },
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: false, htmlLabels: true },
+            sequence: { useMaxWidth: false }
+        });
+
+        function exportPng(id) {
+            const container = document.getElementById(id + '-container');
+            const svg = container.querySelector('svg');
+            if (!svg) {
+                alert('Wait for render...');
+                return;
+            }
+            const source = new XMLSerializer().serializeToString(svg);
+            const canvas = document.createElement('canvas');
+            const rect = svg.getBoundingClientRect();
+            const scale = 3;
+            canvas.width = rect.width * scale;
+            canvas.height = rect.height * scale;
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            const url = URL.createObjectURL(new Blob([source], {type: 'image/svg+xml;charset=utf-8'}));
+            
+            img.onload = function() {
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.scale(scale, scale);
+                ctx.drawImage(img, 0, 0);
+                const a = document.createElement('a');
+                a.download = `${id}-diagram.png`;
+                a.href = canvas.toDataURL('image/png');
+                a.click();
+            };
+            img.src = url;
+        }
+    </script>
+</body>
+</html>
