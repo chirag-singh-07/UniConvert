@@ -396,19 +396,29 @@ graph LR
                 return;
             }
             
+            // Serialize SVG to XML
             const serializer = new XMLSerializer();
-            const source = serializer.serializeToString(svg);
+            let source = serializer.serializeToString(svg);
             
+            // Add XML namespaces if missing
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+                source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            if(!source.match(/^<svg[^>]+xmlns\:xlink="http\:\/\/www\.w3\.org\/1999\/xlink"/)){
+                source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            }
+
             const canvas = document.createElement('canvas');
             const rect = svg.getBoundingClientRect();
             const scale = 3;
             canvas.width = rect.width * scale;
             canvas.height = rect.height * scale;
-            
             const ctx = canvas.getContext('2d');
+            
             const img = new Image();
-            const blob = new Blob([source], {type: 'image/svg+xml;charset=utf-8'});
-            const url = URL.createObjectURL(blob);
+            // Encode to Base64 to handle complex characters and foreignObjects better
+            const svgBase64 = btoa(unescape(encodeURIComponent(source)));
+            img.src = 'data:image/svg+xml;base64,' + svgBase64;
             
             img.onload = function() {
                 ctx.fillStyle = 'white';
@@ -421,9 +431,11 @@ graph LR
                 link.download = `uniconvert-${id}.png`;
                 link.href = pngUrl;
                 link.click();
-                URL.revokeObjectURL(url);
             };
-            img.src = url;
+
+            img.onerror = function() {
+                alert('Export failed. Try a different browser or right-click > Save Image As.');
+            };
         }
     </script>
 </body>
