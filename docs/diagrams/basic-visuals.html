@@ -294,6 +294,75 @@ graph TB
         </div>
     </div>
 
+    <!-- 7. Class Diagram -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Class Diagram</div>
+            <button class="btn" onclick="download('class')">Export PNG</button>
+        </div>
+        <div class="viewport" id="class-container">
+            <div class="mermaid" id="class">
+classDiagram
+    class User {
+        +string ID
+        +string name
+        +login()
+    }
+    class Conversion {
+        +string id
+        +string type
+        +string status
+        +process()
+        +cancel()
+    }
+    class File {
+        +string name
+        +number size
+        +string path
+        +upload()
+        +delete()
+    }
+    User "1" --> "*" Conversion : requests
+    Conversion "1" --> "1" File : contains
+            </div>
+        </div>
+    </div>
+
+    <!-- 8. Component Diagram -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">Component Diagram</div>
+            <button class="btn" onclick="download('component')">Export PNG</button>
+        </div>
+        <div class="viewport" id="component-container">
+            <div class="mermaid" id="component">
+graph LR
+    subgraph "Frontend"
+        ReactApp[React.js UI]
+        Axios[Axios API Client]
+    end
+    subgraph "Backend"
+        ExpressApp[Node.js Express]
+        ConvertEngine[Conversion Manager]
+    end
+    subgraph "External Tools"
+        LibreS[LibreOffice / GS]
+    end
+    
+    ReactApp --> Axios
+    Axios --> ExpressApp
+    ExpressApp --> ConvertEngine
+    ConvertEngine --> LibreS
+
+    style ReactApp fill:#fff,stroke:#000
+    style Axios fill:#fff,stroke:#000
+    style ExpressApp fill:#fff,stroke:#000
+    style ConvertEngine fill:#fff,stroke:#000
+    style LibreS fill:#fff,stroke:#000
+            </div>
+        </div>
+    </div>
+
     <footer>
         <p>UniConvert Project Documentation - Official Portfolio Style</p>
     </footer>

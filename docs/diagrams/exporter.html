@@ -209,6 +209,70 @@ erDiagram
             </div>
         </div>
 
+        <!-- CLASS -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">System Class Diagram</div>
+                <button class="btn" onclick="exportPng('class')">Export PNG</button>
+            </div>
+            <div class="viewport" id="class-container">
+                <div class="mermaid" id="class">
+classDiagram
+    class User {
+        +string ID
+        +login()
+    }
+    class Conversion {
+        +string type
+        +string status
+        +process()
+    }
+    class FileMetadata {
+        +string name
+        +number size
+        +upload()
+    }
+    User "1" --> "*" Conversion : requests
+    Conversion "1" --> "1" FileMetadata : manages
+                </div>
+            </div>
+        </div>
+
+        <!-- COMPONENT -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">System Component Diagram</div>
+                <button class="btn" onclick="exportPng('component')">Export PNG</button>
+            </div>
+            <div class="viewport" id="component-container">
+                <div class="mermaid" id="component">
+graph LR
+    subgraph "Frontend Layer"
+        ReactApp[React UI]
+        APIClient[Axios]
+    end
+    subgraph "Backend Layer"
+        ExpressApp[Express]
+        Converter[Manager]
+    end
+    subgraph "External"
+        Tools[Libre/GS]
+    end
+    
+    ReactApp --> APIClient
+    APIClient --> ExpressApp
+    ExpressApp --> Converter
+    Converter --> Tools
+
+    style ReactApp fill:#fff,stroke:#000
+    style APIClient fill:#fff,stroke:#000
+    style ExpressApp fill:#fff,stroke:#000
+    style Converter fill:#fff,stroke:#000
+    style Tools fill:#fff,stroke:#000
+                </div>
+            </div>
+        </div>
+
         <!-- ARCH -->
         <div class="card">
             <div class="card-header">
